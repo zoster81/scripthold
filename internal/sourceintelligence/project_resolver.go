@@ -128,21 +128,22 @@ func (cache *projectLanguageDescriptorCache) resolve(name string) (LanguageDescr
 // It remains memory-only and may back retained process-local index generations;
 // persistent on-disk indexing is not introduced.
 type ProjectModel struct {
-	files                  map[string]projectFileRecord
-	filesByStem            map[string][]string
-	fileOrder              []string
-	symbolsByFile          map[string][]projectSymbolRecord
-	symbolsByQualified     map[string][]*projectSymbolRecord
-	symbolsByName          map[string][]*projectSymbolRecord
-	symbolIndicesByFile    map[string]map[string]int
-	dependencies           []ProjectDependency
-	dependenciesBySource   map[string][]ProjectDependency
-	dependentsByTarget     map[string][]ProjectDependency
-	references             []ProjectReference
-	definitionsByReference map[string][]RelationEntity
-	referencesByTarget     map[string][]ProjectReference
-	referencesBySource     map[string][]int
-	referencesBySourceID   map[string][]int
+	files                     map[string]projectFileRecord
+	filesByStem               map[string][]string
+	fileOrder                 []string
+	symbolsByFile             map[string][]projectSymbolRecord
+	symbolsByQualified        map[string][]*projectSymbolRecord
+	symbolsByName             map[string][]*projectSymbolRecord
+	symbolIndicesByFile       map[string]map[string]int
+	dependencies              []ProjectDependency
+	dependenciesBySource      map[string][]ProjectDependency
+	dependentsByTarget        map[string][]ProjectDependency
+	references                []ProjectReference
+	definitionsByReference    map[string][]RelationEntity
+	referencesByTarget        map[string][]ProjectReference
+	referencesByTargetIndices map[string][]int
+	referencesBySource        map[string][]int
+	referencesBySourceID      map[string][]int
 }
 
 const defaultProjectResolutionCandidates = 64
@@ -183,7 +184,6 @@ func BuildProjectModel(ctx context.Context, registry *LanguageRegistry, input []
 		dependenciesBySource:   make(map[string][]ProjectDependency),
 		dependentsByTarget:     make(map[string][]ProjectDependency),
 		definitionsByReference: make(map[string][]RelationEntity),
-		referencesByTarget:     make(map[string][]ProjectReference),
 		referencesBySource:     make(map[string][]int),
 	}
 
@@ -467,6 +467,7 @@ func (model *ProjectModel) dependencyPathMatches(file projectFileRecord, depende
 }
 
 func (model *ProjectModel) buildReferences(ctx context.Context, descriptors *projectLanguageDescriptorCache, maxCandidates int) error {
+	hasDuplicateReferenceIDs := false
 	for _, pathKey := range model.fileOrder {
 		file := model.files[pathKey]
 		descriptor, _ := descriptors.resolve(file.languageID)
@@ -525,14 +526,33 @@ func (model *ProjectModel) buildReferences(ctx context.Context, descriptors *pro
 				reference.Resolution = ResolutionAmbiguous
 			}
 			reference.ID = deterministicProjectReferenceID(reference)
+			if _, exists := model.definitionsByReference[reference.ID]; exists {
+				hasDuplicateReferenceIDs = true
+			}
 			model.references = append(model.references, reference)
-			model.definitionsByReference[reference.ID] = cloneRelationEntities(targets)
-			for _, target := range targets {
+			// Both model views own immutable targets; public accessors clone them.
+			// Keep the last value for repeated deterministic reference IDs.
+			model.definitionsByReference[reference.ID] = targets
+		}
+	}
+	// The existing unstable sort must operate on original per-target insertion
+	// order when distinct records share a deterministic ID and sort key.
+	if len(model.references) < 64 || hasDuplicateReferenceIDs {
+		model.referencesByTarget = make(map[string][]ProjectReference)
+		for index, reference := range model.references {
+			if index&255 == 0 {
+				if err := ctx.Err(); err != nil {
+					return operation.Wrap(operation.KindCancelled, "resolve_project_reference", reference.Source.Path, err)
+				}
+			}
+			for _, target := range reference.Targets {
 				if target.SymbolID != "" {
 					model.referencesByTarget[target.SymbolID] = append(model.referencesByTarget[target.SymbolID], reference)
 				}
 			}
 		}
+	} else {
+		model.referencesByTargetIndices = make(map[string][]int)
 	}
 	sortProjectReferences(model.references)
 	// The source-ID index shares sorted reference positions across dense models.
@@ -550,6 +570,13 @@ func (model *ProjectModel) buildReferences(ctx context.Context, descriptors *pro
 		}
 		pathKey := projectPathKey(model.references[index].Source.Path)
 		model.referencesBySource[pathKey] = append(model.referencesBySource[pathKey], index)
+		if model.referencesByTargetIndices != nil {
+			for _, target := range model.references[index].Targets {
+				if target.SymbolID != "" {
+					model.referencesByTargetIndices[target.SymbolID] = append(model.referencesByTargetIndices[target.SymbolID], index)
+				}
+			}
+		}
 		if model.referencesBySourceID != nil {
 			if symbolID := model.references[index].Source.SymbolID; symbolID != "" {
 				model.referencesBySourceID[symbolID] = append(model.referencesBySourceID[symbolID], index)
@@ -772,7 +799,38 @@ func (model *ProjectModel) ReferencesTo(symbolID string) []ProjectReference {
 	if model == nil {
 		return nil
 	}
-	return cloneProjectReferences(model.referencesByTarget[strings.TrimSpace(symbolID)])
+	symbolID = strings.TrimSpace(symbolID)
+	if model.referencesByTargetIndices != nil {
+		indices := model.referencesByTargetIndices[symbolID]
+		result := make([]ProjectReference, len(indices))
+		for index, referenceIndex := range indices {
+			reference := model.references[referenceIndex]
+			result[index] = reference
+			result[index].Source = cloneRelationEntity(reference.Source)
+			result[index].Targets = cloneRelationEntities(reference.Targets)
+		}
+		return result
+	}
+	return cloneProjectReferences(model.referencesByTarget[symbolID])
+}
+
+// forEachReverseReference keeps dense indexed and legacy tie-preserving
+// buckets in the same deterministic iteration contract.
+func (model *ProjectModel) forEachReverseReference(symbolID string, visit func(ProjectReference) error) error {
+	if model.referencesByTargetIndices != nil {
+		for _, index := range model.referencesByTargetIndices[symbolID] {
+			if err := visit(model.references[index]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, reference := range model.referencesByTarget[symbolID] {
+		if err := visit(reference); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Definitions returns the deterministic candidate definitions for one project

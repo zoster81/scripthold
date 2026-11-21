@@ -15,6 +15,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 - Symbol-ID lookups in dense project files now use a bounded, immutable per-file index, speeding up source-query symbol navigation and related context planning. Small files retain their original scan; duplicate IDs, candidate ordering, and source-fingerprint checks keep their existing behavior.
 - Context planning for larger projects now uses existing source-reference indexes to inspect inheritance and implementation relations only for selected source files, instead of scanning the entire project. Smaller projects retain the original scan; ordering, duplicate symbol IDs, evidence and output limits remain unchanged.
 - Inheritance queries in larger projects now use a bounded, immutable source-symbol reference index instead of scanning every project reference. Smaller projects keep their original direct scan; cross-file duplicate symbol IDs, results, ordering, evidence and public response formats remain unchanged.
+- Dense project reference models now retain compact reverse-target indexes and reuse immutable resolved-definition arrays instead of duplicating full reference records and candidate lists. Smaller projects and repeated reference identities keep their existing ordered buckets; returned definitions and references remain independent snapshots, with unchanged ambiguity, evidence, source-fingerprint checks, and relation/context responses.
 
 ## 4.1.0 - 2026-11-20
 

@@ -385,16 +385,17 @@ func (planner *projectContextPlanner) addReverseAndTypeRelations(ctx context.Con
 				}
 			}
 		}
-		for _, reference := range planner.model.referencesByTarget[record.symbol.ID] {
+		if err := planner.model.forEachReverseReference(record.symbol.ID, func(reference ProjectReference) error {
 			if !isInheritanceStructuralKind(reference.StructuralKind) && !isImplementationStructuralKind(reference.StructuralKind) {
-				continue
+				return nil
 			}
 			sourceRecord, ok := planner.model.contextSymbolByID(projectPathKey(reference.Source.Path), reference.Source.SymbolID)
 			if ok {
-				if err := planner.add(sourceRecord, ContextReverseOrTypeRelation, 6, reference.Evidence, reference.Resolution, false); err != nil {
-					return err
-				}
+				return planner.add(sourceRecord, ContextReverseOrTypeRelation, 6, reference.Evidence, reference.Resolution, false)
 			}
+			return nil
+		}); err != nil {
+			return err
 		}
 	}
 	for _, pathKey := range pathTargets {

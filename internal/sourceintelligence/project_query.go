@@ -378,9 +378,9 @@ func (model *ProjectModel) dependencyRecords(pathKey string, reverse bool, kind 
 
 func (model *ProjectModel) referenceRecordsTo(symbolID string, kind RelationKind, predicate func(string) bool, filter projectEvidenceFilter) []RelationRecord {
 	var result []RelationRecord
-	for _, reference := range model.referencesByTarget[symbolID] {
+	_ = model.forEachReverseReference(symbolID, func(reference ProjectReference) error {
 		if !filter.allows(reference.Evidence) || (predicate != nil && !predicate(reference.StructuralKind)) {
-			continue
+			return nil
 		}
 		for _, target := range reference.Targets {
 			if target.SymbolID != symbolID {
@@ -388,7 +388,8 @@ func (model *ProjectModel) referenceRecordsTo(symbolID string, kind RelationKind
 			}
 			result = append(result, RelationRecord{Kind: kind, Source: cloneRelationEntity(reference.Source), Target: cloneRelationEntity(target), Evidence: reference.Evidence, Resolution: reference.Resolution})
 		}
-	}
+		return nil
+	})
 	return result
 }
 

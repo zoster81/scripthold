@@ -1284,6 +1284,13 @@ func BenchmarkProjectContextOutgoingReferenceScaling(b *testing.B) {
 	}
 }
 
+func benchmarkReverseTargetCount(model *ProjectModel, targetID string) int {
+	if model.referencesByTargetIndices != nil {
+		return len(model.referencesByTargetIndices[targetID])
+	}
+	return len(model.referencesByTarget[targetID])
+}
+
 // BenchmarkProjectReverseTargetIndexScaling measures model construction and
 // reverse-reference consumers on analyzer-proven inheritance relationships.
 // The full project model is built outside timed queries.
@@ -1313,14 +1320,20 @@ func BenchmarkProjectReverseTargetIndexScaling(b *testing.B) {
 				b.ReportAllocs()
 				for iteration := 0; iteration < b.N; iteration++ {
 					model, err := BuildProjectModel(context.Background(), registry, facts, limits)
-					if err != nil || len(model.referencesByTarget[baseID]) != children {
-						b.Fatalf("reverse model references=%d err=%v", len(model.referencesByTarget[baseID]), err)
+					if err != nil {
+						b.Fatal(err)
+					}
+					if got := benchmarkReverseTargetCount(model, baseID); got != children {
+						b.Fatalf("reverse model references=%d want=%d", got, children)
 					}
 				}
 			})
 			model, err := BuildProjectModel(context.Background(), registry, facts, limits)
-			if err != nil || len(model.referencesByTarget[baseID]) != children {
-				b.Fatalf("reverse model setup references=%d err=%v", len(model.referencesByTarget[baseID]), err)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if got := benchmarkReverseTargetCount(model, baseID); got != children {
+				b.Fatalf("reverse model setup references=%d want=%d", got, children)
 			}
 			b.Run("references-to", func(b *testing.B) {
 				b.ReportAllocs()
@@ -1390,19 +1403,94 @@ func BenchmarkProjectReverseTargetFanoutScaling(b *testing.B) {
 				capacity += cap(bucket)
 			}
 			bucketBytes := capacity * int(unsafe.Sizeof(ProjectReference{}))
+			indexCapacity := 0
+			for _, indices := range sample.referencesByTargetIndices {
+				indexCapacity += cap(indices)
+			}
+			indexBytes := indexCapacity * int(unsafe.Sizeof(int(0)))
 			b.Run("model-build", func(b *testing.B) {
 				b.ReportAllocs()
 				b.ReportMetric(float64(bucketBytes), "reverse-bucket-B")
+				b.ReportMetric(float64(indexBytes), "reverse-index-B")
 				for iteration := 0; iteration < b.N; iteration++ {
 					model, err := BuildProjectModel(context.Background(), registry, facts, limits)
 					if err != nil {
 						b.Fatal(err)
 					}
-					if got := len(model.referencesByTarget[baseID]); got != children {
+					if got := benchmarkReverseTargetCount(model, baseID); got != children {
 						b.Fatalf("model reverse=%d, want %d", got, children)
 					}
 				}
 			})
+		})
+	}
+}
+
+// BenchmarkProjectReverseTargetLookupParityScaling compares indexed and
+// legacy bucket traversal on the same immutable facts and query workload.
+func BenchmarkProjectReverseTargetLookupParityScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, children := range []int{64, 256} {
+		b.Run(fmt.Sprintf("references-%d", children), func(b *testing.B) {
+			facts := benchmarkJavaProjectFacts(b, children)
+			baseID := ""
+			for _, symbol := range facts[0].Analysis.Analysis.Symbols {
+				if symbol.QualifiedName == "demo.Base" {
+					baseID = symbol.ID
+					break
+				}
+			}
+			model, err := BuildProjectModel(context.Background(), registry, facts, ProjectResolverLimits{
+				MaxFiles: len(facts), MaxSymbols: 4096, MaxDependencies: 4096,
+				MaxReferences: 4096, MaxCandidatesPerResolution: 64,
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+			if model.referencesByTargetIndices == nil {
+				b.Fatal("dense unique fixture must use compact target index")
+			}
+			legacy := *model
+			legacy.referencesByTargetIndices = nil
+			legacy.referencesByTarget = make(map[string][]ProjectReference)
+			for _, reference := range model.references {
+				for _, target := range reference.Targets {
+					if target.SymbolID != "" {
+						legacy.referencesByTarget[target.SymbolID] = append(legacy.referencesByTarget[target.SymbolID], reference)
+					}
+				}
+			}
+			for key := range legacy.referencesByTarget {
+				sortProjectReferences(legacy.referencesByTarget[key])
+			}
+			selector := ProjectSelector{Kind: ProjectSelectorSymbol, Path: facts[0].Path, SourceFingerprint: facts[0].SourceFingerprint, SymbolID: baseID}
+			limits := ProjectQueryLimits{MaxResults: children + 8, MaxNodes: children + 8, MaxEdges: children + 8, MaxDepth: 2}
+			for _, tc := range []struct {
+				name  string
+				model *ProjectModel
+			}{{"indexed", model}, {"legacy", &legacy}} {
+				b.Run(tc.name+"-query", func(b *testing.B) {
+					b.ReportAllocs()
+					for iteration := 0; iteration < b.N; iteration++ {
+						result, err := tc.model.QueryRelations(context.Background(), RelationReferences, selector, ProjectSelector{}, nil, limits)
+						if err != nil || len(result.Records) != children {
+							b.Fatalf("query records=%d err=%v", len(result.Records), err)
+						}
+					}
+				})
+				b.Run(tc.name+"-references-to", func(b *testing.B) {
+					b.ReportAllocs()
+					for iteration := 0; iteration < b.N; iteration++ {
+						result := tc.model.ReferencesTo(baseID)
+						if len(result) != children {
+							b.Fatalf("references=%d, want %d", len(result), children)
+						}
+					}
+				})
+			}
 		})
 	}
 }

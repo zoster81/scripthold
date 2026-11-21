@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"reflect"
@@ -788,6 +789,13 @@ func TestProjectResolverReverseTargetViewParity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if tc.duplicate || tc.children < 64 {
+				if model.referencesByTargetIndices != nil {
+					t.Fatal("duplicate or sparse references must preserve original reverse buckets")
+				}
+			} else if model.referencesByTargetIndices == nil || len(model.referencesByTarget) != 0 {
+				t.Fatal("dense unique references should use only immutable reverse indices")
+			}
 			baseCount := 1
 			if tc.ambiguous {
 				baseCount++
@@ -828,6 +836,140 @@ func TestProjectResolverReverseTargetViewParity(t *testing.T) {
 			}
 			if missing := model.ReferencesTo("missing"); missing == nil || len(missing) != 0 {
 				t.Fatalf("missing references must retain non-nil empty snapshot: %#v", missing)
+			}
+		})
+	}
+}
+
+func TestProjectReverseTargetIndexPreservesLegacyPublicJSON(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const definitions, children = 4, 64
+	facts := make([]ProjectFileFacts, 0, definitions+children)
+	for index := 0; index < definitions; index++ {
+		facts = append(facts, projectResolverFacts(t, JavaAnalyzer{}, fmt.Sprintf("project/indexed/Base%03d.java", index), "package demo; public class Base {}\n"))
+	}
+	for index := 0; index < children; index++ {
+		facts = append(facts, projectResolverFacts(t, JavaAnalyzer{}, fmt.Sprintf("project/indexed/Child%03d.java", index), fmt.Sprintf("package demo; public class Child%03d extends Base {}\n", index)))
+	}
+	indexed, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if indexed.referencesByTargetIndices == nil {
+		t.Fatal("expected the dense unique-reference index")
+	}
+	legacy := *indexed
+	legacy.referencesByTargetIndices = nil
+	legacy.referencesByTarget = make(map[string][]ProjectReference)
+	for _, reference := range indexed.references {
+		for _, target := range reference.Targets {
+			if target.SymbolID != "" {
+				legacy.referencesByTarget[target.SymbolID] = append(legacy.referencesByTarget[target.SymbolID], reference)
+			}
+		}
+	}
+	for key := range legacy.referencesByTarget {
+		sortProjectReferences(legacy.referencesByTarget[key])
+	}
+	sameJSON := func(label string, left, right any) {
+		t.Helper()
+		want, err := json.Marshal(right)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := json.Marshal(left)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(want) {
+			t.Fatalf("%s JSON drift: got %s want %s", label, got, want)
+		}
+	}
+	for _, base := range facts[:definitions] {
+		id := projectSymbolID(t, base, "demo.Base")
+		sameJSON("ReferencesTo", indexed.ReferencesTo(id), legacy.ReferencesTo(id))
+		selector := querySymbolSelector(base, id)
+		limits := ProjectQueryLimits{MaxResults: 256, MaxNodes: 256, MaxEdges: 256, MaxDepth: 2}
+		got, gotErr := indexed.QueryRelations(context.Background(), RelationReferences, selector, ProjectSelector{}, nil, limits)
+		want, wantErr := legacy.QueryRelations(context.Background(), RelationReferences, selector, ProjectSelector{}, nil, limits)
+		if gotErr != nil || wantErr != nil {
+			t.Fatalf("relations errors: indexed=%v legacy=%v", gotErr, wantErr)
+		}
+		sameJSON("reverse relations", got, want)
+		options := ProjectContextOptions{BudgetBytes: 1 << 20, MaxItems: 128, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+		gotContext, gotErr := indexed.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+		wantContext, wantErr := legacy.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+		if gotErr != nil || wantErr != nil {
+			t.Fatalf("context errors: indexed=%v legacy=%v", gotErr, wantErr)
+		}
+		sameJSON("reverse context", gotContext, wantContext)
+	}
+}
+
+func TestProjectResolverDefinitionsSnapshotOwnership(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, definitions := range []int{0, 1, 4, 16} {
+		t.Run(fmt.Sprintf("targets-%d", definitions), func(t *testing.T) {
+			facts := make([]ProjectFileFacts, 0, definitions+1)
+			for index := 0; index < definitions; index++ {
+				path := fmt.Sprintf("project/definitions/Base%03d.java", index)
+				facts = append(facts, projectResolverFacts(t, JavaAnalyzer{}, path, "package demo; public class Base {}\n"))
+			}
+			child := projectResolverFacts(t, JavaAnalyzer{}, "project/definitions/Child.java", "package demo; public class Child extends Base {}\n")
+			relation := child.Analysis.Relations[0]
+			child.Analysis.Relations = append(child.Analysis.Relations, relation)
+			facts = append(facts, child)
+			model, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			references := model.References()
+			if len(references) != 2 || references[0].ID != references[1].ID {
+				t.Fatalf("duplicate reference IDs lost: %+v", references)
+			}
+			id := references[0].ID
+			original := model.Definitions(id)
+			if len(original) != definitions {
+				t.Fatalf("definitions = %d, want %d", len(original), definitions)
+			}
+			if definitions == 0 && original == nil {
+				t.Fatal("empty definitions snapshot must stay non-nil")
+			}
+			for index := range original {
+				if !reflect.DeepEqual(original[index], references[0].Targets[index]) {
+					t.Fatalf("definition[%d] differs from reference target", index)
+				}
+			}
+			before, err := json.Marshal(original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(original) > 0 {
+				original[0].Path = "externally-modified"
+				original[0].QualifiedName = "external"
+				if original[0].Range != nil {
+					original[0].Range.Start.Line = 999
+				}
+				again := model.Definitions("  " + id + "  ")
+				after, err := json.Marshal(again)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(before, after) {
+					t.Fatalf("mutating a definitions snapshot changed subsequent results: before=%s after=%s", before, after)
+				}
+				if !reflect.DeepEqual(model.References(), references) {
+					t.Fatal("mutating a definitions snapshot changed the reference snapshot")
+				}
+			}
+			if missing := model.Definitions("nonexistent"); missing == nil || len(missing) != 0 {
+				t.Fatalf("missing ID must keep empty non-nil snapshot: %#v", missing)
 			}
 		})
 	}
