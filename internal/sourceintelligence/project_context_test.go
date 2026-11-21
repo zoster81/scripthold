@@ -10,6 +10,56 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
+// TestProjectContextCyclicParentsTerminate guards a malformed analyzer result:
+// project-model construction accepts parent IDs but planning must not follow
+// repeated parent IDs indefinitely.
+func TestProjectContextCyclicParentsTerminate(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		pair bool
+	}{
+		{name: "self-parent"},
+		{name: "two-symbol-cycle", pair: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			facts := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join("project", "context", "cycle.ts"), "export class First {}\nexport class Second {}\n")
+			firstID := projectSymbolID(t, facts, "First")
+			secondID := projectSymbolID(t, facts, "Second")
+			for i := range facts.Analysis.Analysis.Symbols {
+				switch facts.Analysis.Analysis.Symbols[i].ID {
+				case firstID:
+					if tc.pair {
+						facts.Analysis.Analysis.Symbols[i].ParentID = secondID
+					} else {
+						facts.Analysis.Analysis.Symbols[i].ParentID = firstID
+					}
+				case secondID:
+					if tc.pair {
+						facts.Analysis.Analysis.Symbols[i].ParentID = firstID
+					}
+				}
+			}
+			model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, projectResolverLimitsForTest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan, err := model.PlanContext(context.Background(), []ProjectSelector{querySymbolSelector(facts, firstID)}, ProjectContextOptions{
+				BudgetBytes: 4096, MaxItems: 8, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !containsContextSymbol(plan.Candidates, firstID) {
+				t.Fatalf("explicit selector disappeared from cyclic-parent plan: %+v", plan.Candidates)
+			}
+		})
+	}
+}
+
 func TestProjectContextSymbolTargetExcludesUnrelatedDependentDeclarations(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
