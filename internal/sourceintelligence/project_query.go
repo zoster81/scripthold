@@ -300,10 +300,8 @@ func (model *ProjectModel) resolveProjectSelector(selector ProjectSelector) (pro
 	case ProjectSelectorPath:
 		return projectQuerySelection{kind: selector.Kind, pathKey: pathKey, entity: model.fileEntity(pathKey)}, nil
 	case ProjectSelectorSymbol:
-		for _, record := range model.symbolsByFile[pathKey] {
-			if record.symbol.ID == selector.SymbolID {
-				return projectQuerySelection{kind: selector.Kind, pathKey: pathKey, entity: record.entity}, nil
-			}
+		if record, found := model.contextSymbolByID(pathKey, selector.SymbolID); found {
+			return projectQuerySelection{kind: selector.Kind, pathKey: pathKey, entity: record.entity}, nil
 		}
 		return projectQuerySelection{}, operation.Wrap(operation.KindNotFound, "resolve_project_selector", file.facts.Path, fmt.Errorf("symbol was not found"))
 	case ProjectSelectorPosition:

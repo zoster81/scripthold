@@ -545,7 +545,15 @@ func isContextRootContainer(kind SymbolKind) bool {
 }
 
 func (model *ProjectModel) contextSymbolByID(pathKey, symbolID string) (projectSymbolRecord, bool) {
-	for _, record := range model.symbolsByFile[pathKey] {
+	records := model.symbolsByFile[pathKey]
+	if byID, indexed := model.symbolIndicesByFile[pathKey]; indexed {
+		index, found := byID[symbolID]
+		if found {
+			return records[index], true
+		}
+		return projectSymbolRecord{}, false
+	}
+	for _, record := range records {
 		if record.symbol.ID == symbolID {
 			return record, true
 		}

@@ -620,6 +620,137 @@ func TestProjectResolverSameFileCandidatesPreserveGlobalIndexParity(t *testing.T
 	}
 }
 
+func TestProjectSymbolIDLookupPreservesFirstMatchAndFingerprint(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source strings.Builder
+	source.WriteString("package demo;\n")
+	for index := 0; index < 80; index++ {
+		fmt.Fprintf(&source, "class C%03d {}\n", index)
+	}
+	first := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join("project", "id", "Source.java"), source.String())
+	second := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join("project", "id", "Other.java"), "package demo; class C000 {}\n")
+	lateID := projectSymbolID(t, first, "demo.C079")
+	for index := range first.Analysis.Analysis.Symbols {
+		switch first.Analysis.Analysis.Symbols[index].QualifiedName {
+		case "demo.C000", "demo.C001":
+			first.Analysis.Analysis.Symbols[index].ID = "duplicate-id"
+		}
+	}
+	for index := range second.Analysis.Analysis.Symbols {
+		if second.Analysis.Analysis.Symbols[index].QualifiedName == "demo.C000" {
+			second.Analysis.Analysis.Symbols[index].ID = "duplicate-id"
+		}
+	}
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{first, second}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias := "project/id/nested/../Source.java"
+	for _, selectedID := range []string{"duplicate-id", lateID, "absent-id"} {
+		selector := ProjectSelector{Kind: ProjectSelectorSymbol, Path: alias, SymbolID: selectedID, SourceFingerprint: first.SourceFingerprint}
+		pathKey := projectPathKey(first.Path)
+		var want projectSymbolRecord
+		found := false
+		for _, record := range model.symbolsByFile[pathKey] {
+			if record.symbol.ID == selectedID {
+				want, found = record, true
+				break
+			}
+		}
+		direct, got := model.contextSymbolByID(pathKey, selectedID)
+		if got != found || (got && !reflect.DeepEqual(direct, want)) {
+			t.Fatalf("context ID %q: got=%+v exists=%v want=%+v exists=%v", selectedID, direct, got, want, found)
+		}
+		query, queryErr := model.resolveProjectSelector(selector)
+		seeds, contextErr := model.contextSeedsForSelector(selector)
+		if !found {
+			if operation.KindOf(queryErr) != operation.KindNotFound || operation.KindOf(contextErr) != operation.KindNotFound {
+				t.Fatalf("missing ID %q: queryErr=%v contextErr=%v", selectedID, queryErr, contextErr)
+			}
+			continue
+		}
+		if queryErr != nil || contextErr != nil || !reflect.DeepEqual(query.entity, want.entity) || len(seeds) != 1 || !reflect.DeepEqual(seeds[0].record, want) {
+			t.Fatalf("symbol ID %q: query=%+v queryErr=%v seeds=%+v contextErr=%v want=%+v", selectedID, query, queryErr, seeds, contextErr, want)
+		}
+	}
+	duplicate, ok := model.contextSymbolByID(projectPathKey(first.Path), "duplicate-id")
+	if !ok || duplicate.symbol.QualifiedName != "demo.C000" {
+		t.Fatalf("first sorted duplicate changed: %+v found=%v", duplicate, ok)
+	}
+	other, ok := model.contextSymbolByID(projectPathKey(second.Path), "duplicate-id")
+	if !ok || other.entity.Path != second.Path {
+		t.Fatalf("symbol ID must be scoped to file: %+v found=%v", other, ok)
+	}
+	stale := ProjectSelector{Kind: ProjectSelectorSymbol, Path: first.Path, SourceFingerprint: strings.Repeat("0", 64), SymbolID: lateID}
+	if _, err := model.resolveProjectSelector(stale); operation.KindOf(err) != operation.KindConflict {
+		t.Fatalf("stale query fingerprint: %v", err)
+	}
+	if _, err := model.contextSeedsForSelector(stale); operation.KindOf(err) != operation.KindConflict {
+		t.Fatalf("stale context fingerprint: %v", err)
+	}
+}
+
+func TestProjectSymbolIDIndexPreservesCompleteContextPlans(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name      string
+		analyzer  SourceAnalyzer
+		path      string
+		header    string
+		baseName  string
+		childName string
+	}{
+		{"java", JavaAnalyzer{}, "project/context/dense/Index.java", "package demo;\n", "demo.Base", "demo.Child079"},
+		{"typescript", TypeScriptAnalyzer{}, "project/context/dense/index.ts", "", "Base", "Child079"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var source strings.Builder
+			source.WriteString(tc.header)
+			source.WriteString("class Base {}\n")
+			for index := 0; index < 80; index++ {
+				fmt.Fprintf(&source, "class Child%03d extends Base {}\n", index)
+			}
+			facts := projectResolverFacts(t, tc.analyzer, tc.path, source.String())
+			model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, projectResolverLimitsForTest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(model.references) != 80 || len(model.symbolIndicesByFile[projectPathKey(facts.Path)]) == 0 {
+				t.Fatalf("fixture expected 80 type relationships and a dense ID index, got refs=%d ids=%d", len(model.references), len(model.symbolIndicesByFile[projectPathKey(facts.Path)]))
+			}
+			baseID := projectSymbolID(t, facts, tc.baseName)
+			lastID := projectSymbolID(t, facts, tc.childName)
+			selector := func(id string) ProjectSelector {
+				return ProjectSelector{Kind: ProjectSelectorSymbol, Path: facts.Path, SymbolID: id, SourceFingerprint: facts.SourceFingerprint}
+			}
+			position := model.references[len(model.references)-1].Range.Start
+			selectors := []ProjectSelector{
+				selector(baseID), selector(lastID),
+				{Kind: ProjectSelectorPosition, Path: facts.Path, SourceFingerprint: facts.SourceFingerprint, Position: &position},
+				{Kind: ProjectSelectorPath, Path: facts.Path, SourceFingerprint: facts.SourceFingerprint},
+			}
+			// The same immutable facts, evaluated with the legacy scan rather
+			// than the index, must produce exactly the same complete plan.
+			scanned := *model
+			scanned.symbolIndicesByFile = nil
+			options := ProjectContextOptions{BudgetBytes: 1024 * 1024, MaxItems: 96, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+			for _, target := range selectors {
+				indexed, indexedErr := model.PlanContext(context.Background(), []ProjectSelector{target}, options)
+				legacy, legacyErr := scanned.PlanContext(context.Background(), []ProjectSelector{target}, options)
+				if indexedErr != nil || legacyErr != nil || !reflect.DeepEqual(indexed, legacy) {
+					t.Fatalf("context mismatch for %s/%s: indexedErr=%v legacyErr=%v indexed=%+v legacy=%+v", tc.name, target.Kind, indexedErr, legacyErr, indexed, legacy)
+				}
+			}
+		})
+	}
+}
+
 func projectResolverFacts(t *testing.T, analyzer SourceAnalyzer, path, text string) ProjectFileFacts {
 	t.Helper()
 	document := sourceDocumentForScanner(text)

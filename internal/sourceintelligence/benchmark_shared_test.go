@@ -768,6 +768,97 @@ func BenchmarkProjectDenseSameFileResolution(b *testing.B) {
 	}
 }
 
+// BenchmarkProjectSymbolIDContextScaling isolates repeated symbol-ID lookups
+// from full context planning and accounts for model construction overhead.
+func BenchmarkProjectSymbolIDContextScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, children := range []int{16, 64, 256} {
+		b.Run(fmt.Sprintf("classes-%d", children), func(b *testing.B) {
+			var source strings.Builder
+			source.WriteString("package demo;\nclass Base {}\n")
+			for index := 0; index < children; index++ {
+				fmt.Fprintf(&source, "class Child%03d extends Base {}\n", index)
+			}
+			facts := benchmarkAnalyzerFacts(b, JavaAnalyzer{}, "project/benchmark/DenseID.java", source.String())
+			limits := ProjectResolverLimits{MaxFiles: 1, MaxSymbols: 4096, MaxDependencies: 4096, MaxReferences: 4096, MaxCandidatesPerResolution: 64}
+			b.Run("model-build", func(b *testing.B) {
+				b.ReportAllocs()
+				for iteration := 0; iteration < b.N; iteration++ {
+					model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, limits)
+					if err != nil || len(model.references) != children {
+						b.Fatalf("model build references=%d err=%v", len(model.references), err)
+					}
+				}
+			})
+			model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, limits)
+			if err != nil {
+				b.Fatal(err)
+			}
+			pathKey := projectPathKey(facts.Path)
+			records := model.symbolsByFile[pathKey]
+			if len(records) < children+1 {
+				b.Fatalf("analyzer returned %d symbols, expected >= %d", len(records), children+1)
+			}
+			var baseID, lastID string
+			for _, record := range records {
+				switch record.symbol.QualifiedName {
+				case "demo.Base":
+					baseID = record.symbol.ID
+				case fmt.Sprintf("demo.Child%03d", children-1):
+					lastID = record.symbol.ID
+				}
+			}
+			if baseID == "" || lastID == "" {
+				b.Fatalf("missing Base or late-child ID: base=%q child=%q", baseID, lastID)
+			}
+			last := ProjectSelector{Kind: ProjectSelectorSymbol, Path: facts.Path, SourceFingerprint: facts.SourceFingerprint, SymbolID: lastID}
+			base := ProjectSelector{Kind: ProjectSelectorSymbol, Path: facts.Path, SourceFingerprint: facts.SourceFingerprint, SymbolID: baseID}
+			options := ProjectContextOptions{BudgetBytes: 1024 * 1024, MaxItems: children + 8, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+			if seeds, err := model.contextSeedsForSelector(last); err != nil || len(seeds) != 1 {
+				b.Fatalf("late symbol selector seeds=%d err=%v", len(seeds), err)
+			}
+			if plan, err := model.PlanContext(context.Background(), []ProjectSelector{base}, options); err != nil || len(plan.Candidates) < children {
+				b.Fatalf("base context candidates=%d err=%v", len(plan.Candidates), err)
+			}
+			b.Run("id-lookup", func(b *testing.B) {
+				b.ReportAllocs()
+				for iteration := 0; iteration < b.N; iteration++ {
+					if _, ok := model.contextSymbolByID(pathKey, lastID); !ok {
+						b.Fatal("late symbol not found")
+					}
+				}
+			})
+			b.Run("query-symbol", func(b *testing.B) {
+				b.ReportAllocs()
+				for iteration := 0; iteration < b.N; iteration++ {
+					if _, err := model.resolveProjectSelector(last); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+			b.Run("context-selector", func(b *testing.B) {
+				b.ReportAllocs()
+				for iteration := 0; iteration < b.N; iteration++ {
+					if _, err := model.contextSeedsForSelector(last); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+			b.Run("context-plan-base", func(b *testing.B) {
+				b.ReportAllocs()
+				for iteration := 0; iteration < b.N; iteration++ {
+					if _, err := model.PlanContext(context.Background(), []ProjectSelector{base}, options); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+		})
+	}
+}
+
 // BenchmarkProjectPositionSelectorModelBuild includes immutable model setup
 // to account for the memory and CPU cost of any new lookup index.
 func BenchmarkProjectPositionSelectorModelBuild(b *testing.B) {

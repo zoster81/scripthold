@@ -12,6 +12,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 - Source-position selectors in `source_query` now reuse a bounded, immutable file-to-reference index built with each project model. This avoids scanning and normalizing unrelated source paths on every relation or context lookup, while preserving source identity, first-match order, fingerprint checks, and public results.
 - Dense per-file project relationship resolution now reuses short-lived, source-specific candidate groups rather than repeatedly scanning every declaration for each reference. This improves project model construction while keeping the same relationship evidence, ordering, ambiguity and output.
 - Same-file relationship target lookup now reuses existing symbol indexes when a target has at most one indexed candidate, instead of scanning a large source file. Other lookups retain their original local scan to protect ambiguous matches and result ordering.
+- Symbol-ID lookups in dense project files now use a bounded, immutable per-file index, speeding up source-query symbol navigation and related context planning. Small files retain their original scan; duplicate IDs, candidate ordering, and source-fingerprint checks keep their existing behavior.
 
 ## 4.1.0 - 2026-11-20
 

@@ -134,6 +134,7 @@ type ProjectModel struct {
 	symbolsByFile          map[string][]projectSymbolRecord
 	symbolsByQualified     map[string][]*projectSymbolRecord
 	symbolsByName          map[string][]*projectSymbolRecord
+	symbolIndicesByFile    map[string]map[string]int
 	dependencies           []ProjectDependency
 	dependenciesBySource   map[string][]ProjectDependency
 	dependentsByTarget     map[string][]ProjectDependency
@@ -279,6 +280,24 @@ func (model *ProjectModel) buildSymbolTables(ctx context.Context, descriptors *p
 		// inside the backing array and make index keys reference the wrong records.
 		sortProjectSymbolRecords(records)
 		model.symbolsByFile[pathKey] = records
+		if len(records) >= 64 {
+			// Record the first sorted occurrence, preserving duplicate-ID selectors.
+			byID := make(map[string]int, len(records))
+			for index := range records {
+				if index%256 == 0 {
+					if err := ctx.Err(); err != nil {
+						return operation.Wrap(operation.KindCancelled, "build_project_symbol_tables", file.facts.Path, err)
+					}
+				}
+				if _, exists := byID[records[index].symbol.ID]; !exists {
+					byID[records[index].symbol.ID] = index
+				}
+			}
+			if model.symbolIndicesByFile == nil {
+				model.symbolIndicesByFile = make(map[string]map[string]int)
+			}
+			model.symbolIndicesByFile[pathKey] = byID
+		}
 		for index := range records {
 			record := &records[index]
 			qualifiedIndex := record.languageID + "\x00" + record.qualifiedKey
