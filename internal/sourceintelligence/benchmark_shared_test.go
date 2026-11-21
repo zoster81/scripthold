@@ -1345,6 +1345,68 @@ func BenchmarkProjectReverseTargetIndexScaling(b *testing.B) {
 	}
 }
 
+// BenchmarkProjectForwardInheritanceScaling isolates whole-project source-side
+// reference scanning from the surrounding public relationship query cost.
+func BenchmarkProjectForwardInheritanceScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, children := range []int{16, 64, 256} {
+		b.Run(fmt.Sprintf("references-%d", children), func(b *testing.B) {
+			facts := benchmarkJavaProjectFacts(b, children)
+			model, err := BuildProjectModel(context.Background(), registry, facts, ProjectResolverLimits{
+				MaxFiles: len(facts), MaxSymbols: 4096, MaxDependencies: 4096,
+				MaxReferences: 4096, MaxCandidatesPerResolution: 64,
+			})
+			if err != nil || len(model.references) != children {
+				b.Fatalf("project references=%d err=%v", len(model.references), err)
+			}
+			symbolSelector := func(fact ProjectFileFacts, qualifiedName string) ProjectSelector {
+				for _, symbol := range fact.Analysis.Analysis.Symbols {
+					if symbol.QualifiedName == qualifiedName {
+						return ProjectSelector{Kind: ProjectSelectorSymbol, Path: fact.Path, SourceFingerprint: fact.SourceFingerprint, SymbolID: symbol.ID}
+					}
+				}
+				b.Fatalf("missing benchmark symbol %q in %q", qualifiedName, fact.Path)
+				return ProjectSelector{}
+			}
+			base := symbolSelector(facts[0], "demo.Base")
+			early := symbolSelector(facts[1], "demo.Child000")
+			late := symbolSelector(facts[len(facts)-1], fmt.Sprintf("demo.Child%03d", children-1))
+			limits := ProjectQueryLimits{MaxResults: children + 8, MaxNodes: children + 8, MaxEdges: children + 8, MaxDepth: 2}
+			for _, tc := range []struct {
+				name     string
+				selector ProjectSelector
+				want     int
+			}{
+				{"no-source", base, 0},
+				{"early-source", early, 1},
+				{"late-source", late, 1},
+			} {
+				b.Run(tc.name, func(b *testing.B) {
+					b.ReportAllocs()
+					for iteration := 0; iteration < b.N; iteration++ {
+						result, err := model.QueryRelations(context.Background(), RelationInheritance, tc.selector, ProjectSelector{}, nil, limits)
+						if err != nil || len(result.Records) != tc.want {
+							b.Fatalf("forward query got=%d want=%d err=%v", len(result.Records), tc.want, err)
+						}
+					}
+				})
+			}
+			b.Run("raw-source-scan", func(b *testing.B) {
+				b.ReportAllocs()
+				for iteration := 0; iteration < b.N; iteration++ {
+					records := model.referenceRecordsFrom(late.SymbolID, RelationInheritance, isInheritanceStructuralKind, nil)
+					if len(records) != 1 {
+						b.Fatalf("forward scan got=%d want=1", len(records))
+					}
+				}
+			})
+		})
+	}
+}
+
 func benchmarkJavaProjectFacts(b *testing.B, children int) []ProjectFileFacts {
 	b.Helper()
 	facts := make([]ProjectFileFacts, 0, children+1)
