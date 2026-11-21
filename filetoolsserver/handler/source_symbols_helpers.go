@@ -728,13 +728,33 @@ func buildSourceDigest(current sourceFileAnalysis) SourceDigest {
 	}
 }
 
+// sourceOutputJSONByteCounter accepts complete encoded chunks without retaining
+// the JSON output only needed for its byte-accurate response budget.
+type sourceOutputJSONByteCounter struct {
+	bytes int64
+}
+
+func (counter *sourceOutputJSONByteCounter) Write(data []byte) (int, error) {
+	if int64(len(data)) > int64(^uint64(0)>>1)-counter.bytes {
+		return 0, fmt.Errorf("source output byte count overflow")
+	}
+	counter.bytes += int64(len(data))
+	return len(data), nil
+}
+
 func enforceSourceOutputBudget(output SourceSymbolsOutput, maximum int64) error {
-	encoded, err := json.Marshal(output)
-	if err != nil {
+	var counter sourceOutputJSONByteCounter
+	if err := json.NewEncoder(&counter).Encode(output); err != nil {
 		return operation.Wrap(operation.KindUnknown, "source_symbols", "", err)
 	}
-	if int64(len(encoded)) > maximum {
-		return operation.Wrap(operation.KindLimit, "source_symbols", "", fmt.Errorf("source output size %d exceeds limit %d", len(encoded), maximum))
+	// Encoder appends one newline; Marshal (the original budget oracle)
+	// does not. The rest of the encoding uses identical default escaping.
+	if counter.bytes == 0 {
+		return operation.New(operation.KindUnknown, "source output encoder returned no data")
+	}
+	encodedBytes := counter.bytes - 1
+	if encodedBytes > maximum {
+		return operation.Wrap(operation.KindLimit, "source_symbols", "", fmt.Errorf("source output size %d exceeds limit %d", encodedBytes, maximum))
 	}
 	return nil
 }

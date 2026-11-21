@@ -12,8 +12,107 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zoster81/scripthold/internal/config"
+	"github.com/zoster81/scripthold/internal/operation"
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
+
+func TestEnforceSourceOutputBudgetExactJSONBoundaries(t *testing.T) {
+	cases := []struct {
+		name   string
+		output SourceSymbolsOutput
+	}{
+		{name: "empty", output: SourceSymbolsOutput{}},
+		{name: "detailed-with-escapes", output: SourceSymbolsOutput{
+			Operation: "outline", CoordinateSystem: sourceCoordinateSystem,
+			FilesConsidered: 1, FilesParsed: 1, SymbolCount: 1, CoverageComplete: true,
+			Files: []SourceSymbolsFile{{Path: "a<>&é.go", Status: "parsed", Encoding: "utf-8", CoverageComplete: true}},
+			Symbols: []sourceintelligence.NormalizedSymbol{{
+				ID: "s-1", Path: "a<>&é.go", Language: "go", Name: "x\xff\u2028😀",
+				Kind: sourceintelligence.SymbolKindFunction, Signature: "a\nb<&>",
+				Modifiers: []string{"public", "static"},
+			}},
+		}},
+		{name: "tree", output: SourceSymbolsOutput{
+			Operation: "outline", Presentation: "tree", CoordinateSystem: sourceCoordinateSystem,
+			FilesConsidered: 1, FilesParsed: 1, SymbolCount: 2, CoverageComplete: true,
+			OutlineFiles: []SourceOutlineFile{{
+				Path: "tree.go", Status: "parsed", CoverageComplete: true,
+				Symbols: []*SourceOutlineNode{{
+					SymbolID: "parent", Name: "Parent", Line: 1, Column: 1,
+					Children: []*SourceOutlineNode{{SymbolID: "child", Name: "Child", Line: 2, Column: 1}},
+				}},
+			}},
+		}},
+		{name: "digest-partial", output: SourceSymbolsOutput{
+			Operation: "digest", CoordinateSystem: sourceCoordinateSystem,
+			FilesConsidered: 2, FilesParsed: 1, FilesSkipped: 1, CoverageComplete: false, Truncated: true,
+			Digests: []SourceDigest{{Path: "file.go", Language: "go", DeclarationCounts: []SourceDeclarationCount{
+				{Kind: sourceintelligence.SymbolKindFunction, Count: 2},
+			}}},
+		}},
+		{name: "show", output: SourceSymbolsOutput{
+			Operation: "show", CoordinateSystem: sourceCoordinateSystem, CoverageComplete: true,
+			Show: &SourceShow{Path: "file.go", Language: "go", Text: "line\n<hello>&😀\r"},
+		}},
+		{name: "concise-outline", output: SourceSymbolsOutput{
+			Operation: "outline", Presentation: "concise",
+			ConciseFiles: []SourceConciseFile{{
+				Path: "file.go", Status: "partial", Functions: []string{"A", "<B>"},
+			}},
+			CoverageComplete: false, Truncated: true, FilesSkipped: 1,
+			ConciseAnalysisComplete: false, ConciseSelectionTruncated: true,
+			ConciseResultsTruncated: true,
+		}},
+		{name: "concise-show", output: SourceSymbolsOutput{
+			Operation: "show", Presentation: "concise", CoverageComplete: false,
+			ConciseShow: &SourceConciseShow{File: "file.go", Representation: "body", Code: "a\nb&c"},
+		}},
+	}
+	large := SourceSymbolsOutput{
+		Operation: "outline", Presentation: "detailed", CoverageComplete: true,
+		FilesConsidered: 1, FilesParsed: 1,
+	}
+	for index := 0; index < 256; index++ {
+		large.Symbols = append(large.Symbols, sourceintelligence.NormalizedSymbol{
+			ID: fmt.Sprintf("id-%04d", index), Name: fmt.Sprintf("item-%04d", index),
+			Path: "large.go", Kind: sourceintelligence.SymbolKindFunction,
+			Signature: strings.Repeat("type<const>&😀", 8),
+		})
+	}
+	large.SymbolCount = len(large.Symbols)
+	cases = append(cases, struct {
+		name   string
+		output SourceSymbolsOutput
+	}{name: "large-detailed", output: large})
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := json.Marshal(tc.output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, maximum := range []int64{0, 1, int64(len(encoded)) - 1, int64(len(encoded)), int64(len(encoded)) + 1} {
+				err := enforceSourceOutputBudget(tc.output, maximum)
+				if maximum < int64(len(encoded)) {
+					if operation.KindOf(err) != operation.KindLimit {
+						t.Fatalf("cap=%d, JSON bytes=%d, err=%v: want limit", maximum, len(encoded), err)
+					}
+					message := fmt.Sprintf("source output size %d exceeds limit %d", len(encoded), maximum)
+					if !strings.Contains(err.Error(), message) {
+						t.Fatalf("cap=%d: error changed: %v", maximum, err)
+					}
+				} else if err != nil {
+					t.Fatalf("cap=%d, JSON bytes=%d, unexpected error=%v", maximum, len(encoded), err)
+				}
+			}
+		})
+	}
+	broken := SourceSymbolsOutput{Operation: "show", Presentation: "concise"}
+	if err := enforceSourceOutputBudget(broken, 1024); operation.KindOf(err) != operation.KindUnknown ||
+		!strings.Contains(err.Error(), "concise show requires an exact source selection") {
+		t.Fatalf("serialization error contract changed: %v", err)
+	}
+}
 
 func TestSourceRequestFileSelectionParity(t *testing.T) {
 	root := t.TempDir()

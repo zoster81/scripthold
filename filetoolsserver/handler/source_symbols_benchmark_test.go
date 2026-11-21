@@ -2,11 +2,13 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
@@ -53,6 +55,193 @@ func BenchmarkSourceSymbolsOperations(b *testing.B) {
 			}
 		})
 	}
+}
+
+// sourceSymbolsCountingWriter measures serialized byte lengths without
+// retaining an extra JSON buffer.
+type sourceSymbolsCountingWriter struct {
+	bytes int
+}
+
+func (counter *sourceSymbolsCountingWriter) Write(data []byte) (int, error) {
+	counter.bytes += len(data)
+	return len(data), nil
+}
+
+// BenchmarkSourceSymbolsPhaseAttribution separates secure source opening,
+// language detection, native Go analysis, and the complete handler operation.
+// The phases are measured independently and their timings are not additive.
+func BenchmarkSourceSymbolsPhaseAttribution(b *testing.B) {
+	root := b.TempDir()
+	path := filepath.Join(root, "phase.go")
+	var source strings.Builder
+	source.WriteString("package sample\n")
+	for index := 0; index < 200; index++ {
+		fmt.Fprintf(&source, "func F%03d(value int) int { return value }\n", index)
+	}
+	if err := os.WriteFile(path, []byte(source.String()), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	h := NewHandler([]string{root})
+	validated := h.ValidatePath(path)
+	if !validated.Ok() {
+		b.Fatal("generated source path was not authorized")
+	}
+	limits := h.sourceLimits()
+	options := sourceintelligence.OpenDocumentOptions{
+		RequestedEncoding:    "utf-8",
+		MaxFileBytes:         limits.MaxFileBytes,
+		MaxDecodedCharacters: h.maxDecodedCharacters(),
+	}
+	ctx := context.Background()
+	document, err := sourceintelligence.OpenSourceDocument(ctx, validated.Path, options)
+	if err != nil {
+		b.Fatal(err)
+	}
+	registry, err := sourceintelligence.DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	detectionInput := sourceintelligence.DetectionInput{
+		Path: validated.Path, Text: document.Text, ExplicitLanguage: "go",
+		MaxProbes: limits.MaxDetectorProbes,
+	}
+	analysisOptions := sourceintelligence.AnalyzeOptions{
+		IncludeSignatures: false, MaxNesting: limits.MaxNesting,
+		Limits: sourceintelligence.SymbolBuilderLimits{
+			MaxSymbols: 1000, MaxSignatureBytes: limits.MaxSignatureBytes,
+			MaxDiagnostics: limits.MaxDiagnostics,
+		},
+	}
+	analyzer := sourceintelligence.GoAnalyzer{}
+	seedAnalysis, err := analyzer.Analyze(ctx, document, analysisOptions)
+	if err != nil || !seedAnalysis.Analysis.CoverageComplete || len(seedAnalysis.Analysis.Symbols) != 201 {
+		b.Fatalf("Go analyzer seed: symbols=%d complete=%t err=%v", len(seedAnalysis.Analysis.Symbols), seedAnalysis.Analysis.CoverageComplete, err)
+	}
+	input := SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{validated.Path},
+		Language: "go", Encoding: "utf-8", MaxSymbols: 1000,
+	}
+	callErr, seedOutput, err := h.SourceSymbols(ctx, nil, input)
+	if err != nil || callErr != nil || seedOutput.SymbolCount != len(seedAnalysis.Analysis.Symbols) {
+		b.Fatalf("handler seed: symbols=%d want=%d err=%v toolErr=%v", seedOutput.SymbolCount, len(seedAnalysis.Analysis.Symbols), err, callErr)
+	}
+	b.Run("open-and-decode", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(document.Text)))
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			opened, err := sourceintelligence.OpenSourceDocument(ctx, validated.Path, options)
+			if err != nil || opened.SourceFingerprint != document.SourceFingerprint || opened.Text != document.Text {
+				b.Fatalf("source snapshot changed: err=%v", err)
+			}
+		}
+	})
+	b.Run("detect-language", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(document.Text)))
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			detection, err := sourceintelligence.DetectLanguage(ctx, registry, detectionInput)
+			if err != nil || detection.Language != "go" {
+				b.Fatalf("language detection changed: %+v err=%v", detection, err)
+			}
+		}
+	})
+	b.Run("analyze-go", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(document.Text)))
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			result, err := analyzer.Analyze(ctx, document, analysisOptions)
+			if err != nil || !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != len(seedAnalysis.Analysis.Symbols) {
+				b.Fatalf("Go analysis changed: symbols=%d err=%v", len(result.Analysis.Symbols), err)
+			}
+		}
+	})
+	b.Run("select-authorized-files", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(document.Text)))
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			files, truncated, toolErr := h.collectSourceSymbolFiles(ctx, input, limits.MaxFiles, limits)
+			if toolErr != nil || truncated || len(files) != 1 || files[0] != validated.Path {
+				b.Fatalf("file selection changed: files=%v truncated=%t err=%v", files, truncated, toolErr)
+			}
+		}
+	})
+	b.Run("analyze-file", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(document.Text)))
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			analyzed := h.analyzeSourceFile(ctx, registry, validated.Path, "go", "utf-8", false, 1000, limits)
+			if analyzed.file.Status != "parsed" || len(analyzed.analysis.Analysis.Symbols) != len(seedAnalysis.Analysis.Symbols) ||
+				analyzed.file.SourceFingerprint != document.SourceFingerprint {
+				b.Fatalf("file analysis changed: status=%s symbols=%d", analyzed.file.Status, len(analyzed.analysis.Analysis.Symbols))
+			}
+		}
+	})
+	analyses := []sourceFileAnalysis{{
+		file: SourceSymbolsFile{
+			Path: validated.Path, Status: "parsed", CoverageComplete: true,
+			Language: "go", Encoding: "utf-8",
+			SourceFingerprint: document.SourceFingerprint,
+		},
+		analysis: seedAnalysis,
+	}}
+	b.Run("assemble-outline", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(document.Text)))
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			output := buildSourceSymbolsOutput("outline", input, 1, false, analyses, 1000)
+			if output.SymbolCount != seedOutput.SymbolCount || len(output.Files) != 1 {
+				b.Fatalf("assembled symbols=%d files=%d", output.SymbolCount, len(output.Files))
+			}
+		}
+	})
+	b.Run("enforce-output-budget", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(document.Text)))
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			if err := enforceSourceOutputBudget(seedOutput, limits.MaxOutputBytes); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+	// Encoder.Encode adds one newline but otherwise uses Marshal's default
+	// HTML escaping; this experimental comparator checks the original byte cap.
+	encoded, err := json.Marshal(seedOutput)
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Run("encode-budget-count-only", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(document.Text)))
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			counter := &sourceSymbolsCountingWriter{}
+			if err := json.NewEncoder(counter).Encode(seedOutput); err != nil {
+				b.Fatal(err)
+			}
+			if counter.bytes-1 != len(encoded) {
+				b.Fatalf("counted %d JSON bytes; want %d", counter.bytes-1, len(encoded))
+			}
+		}
+	})
+	b.Run("full-outline", func(b *testing.B) {
+		b.ReportAllocs()
+		b.SetBytes(int64(len(document.Text)))
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			callErr, output, err := h.SourceSymbols(ctx, nil, input)
+			if err != nil || callErr != nil || output.SymbolCount != seedOutput.SymbolCount {
+				b.Fatalf("handler outline changed: symbols=%d err=%v toolErr=%v", output.SymbolCount, err, callErr)
+			}
+		}
+	})
 }
 
 // BenchmarkSourceOutlineProjection isolates tree/compact output construction
