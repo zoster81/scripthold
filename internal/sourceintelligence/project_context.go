@@ -51,11 +51,16 @@ type projectContextSeed struct {
 	required   bool
 }
 
+type projectContextKey struct {
+	pathKey  string
+	symbolID string
+}
+
 type projectContextPlanner struct {
 	model   *ProjectModel
 	options ProjectContextOptions
 	plan    ProjectContextPlan
-	seen    map[string]struct{}
+	seen    map[projectContextKey]struct{}
 	roots   map[string][]projectSymbolRecord
 }
 
@@ -110,7 +115,7 @@ func (model *ProjectModel) PlanContext(ctx context.Context, targets []ProjectSel
 	planner := projectContextPlanner{
 		model: model, options: options,
 		plan: ProjectContextPlan{Candidates: make([]ProjectContextCandidate, 0, min(options.MaxItems, len(seeds)+8))},
-		seen: make(map[string]struct{}),
+		seen: make(map[projectContextKey]struct{}),
 	}
 	for _, seed := range seeds {
 		if err := planner.add(seed.record, ContextTarget, 1, seed.evidence, seed.resolution, seed.required); err != nil {
@@ -198,7 +203,7 @@ func (planner *projectContextPlanner) add(record projectSymbolRecord, reason Con
 }
 
 func (planner *projectContextPlanner) addWithPolicy(record projectSymbolRecord, reason ContextReason, priority int, evidence SymbolEvidence, resolution ResolutionState, required bool, bodyPolicy ProjectContextBodyPolicy) error {
-	key := record.pathKey + "\x00" + record.symbol.ID
+	key := projectContextKey{pathKey: record.pathKey, symbolID: record.symbol.ID}
 	if _, exists := planner.seen[key]; exists {
 		return nil
 	}
