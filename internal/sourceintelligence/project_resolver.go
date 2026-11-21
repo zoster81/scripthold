@@ -615,6 +615,25 @@ func (model *ProjectModel) sameFileCandidates(file projectFileRecord, descriptor
 	}
 
 	records := model.symbolsByFile[file.pathKey]
+	if len(records) >= 64 {
+		// A unique global hit cannot change local candidate precedence.
+		// Ambiguous buckets keep the original per-file scan and ordering.
+		var indexed []*projectSymbolRecord
+		if qualified != "" {
+			indexed = model.symbolsByQualified[descriptor.ID+"\x00"+qualified]
+		} else {
+			indexed = model.symbolsByName[descriptor.ID+"\x00"+target]
+		}
+		if len(indexed) <= 1 {
+			var result []*projectSymbolRecord
+			for _, record := range indexed {
+				if record.pathKey == file.pathKey && record.languageID == descriptor.ID && isRelationEndpointKind(record.symbol.Kind) {
+					result = append(result, record)
+				}
+			}
+			return result
+		}
+	}
 	var result []*projectSymbolRecord
 	for index := range records {
 		record := &records[index]

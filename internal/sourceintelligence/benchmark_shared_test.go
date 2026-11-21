@@ -738,6 +738,20 @@ func BenchmarkProjectDenseSameFileResolution(b *testing.B) {
 			}
 			file := model.files[projectPathKey(facts.Path)]
 			relation := facts.Analysis.Relations[len(facts.Analysis.Relations)-1]
+			target := projectSymbolLookupKey(descriptor, relation.Target)
+			parent := qualifiedParent(projectSymbolLookupKey(descriptor, relation.Source))
+			if got := model.sameFileCandidates(file, descriptor, parent, target); len(got) != 1 {
+				b.Fatalf("unexpected same-file targets: %d", len(got))
+			}
+			b.Run("same-file-candidates", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for iteration := 0; iteration < b.N; iteration++ {
+					if got := model.sameFileCandidates(file, descriptor, parent, target); len(got) != 1 {
+						b.Fatalf("unexpected same-file targets: %d", len(got))
+					}
+				}
+			})
 			if got := model.resolveRelationSource(file, descriptor, relation, nil); got.SymbolID == "" {
 				b.Fatalf("last source could not be resolved: %+v", got)
 			}

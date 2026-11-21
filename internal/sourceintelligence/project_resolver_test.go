@@ -536,6 +536,90 @@ func TestProjectResolverDenseSourceCandidatesPreserveLinearSelection(t *testing.
 	}
 }
 
+func TestProjectResolverSameFileCandidatesPreserveGlobalIndexParity(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor, ok := registry.Resolve("java")
+	if !ok {
+		t.Fatal("java descriptor is unavailable")
+	}
+	var denseSource strings.Builder
+	denseSource.WriteString("package demo;\nclass Base {}\n")
+	for index := 0; index < 64; index++ {
+		fmt.Fprintf(&denseSource, "class Child%03d extends Base {}\n", index)
+	}
+	dense := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join("project", "dense", "Local.java"), denseSource.String())
+	sparse := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join("project", "sparse", "Local.java"), "package demo; class Base {}\nclass Child extends Base {}\n")
+	facts := []ProjectFileFacts{dense, sparse}
+	// Repeated qualified names force a large global index bucket even when
+	// one local file has only a few symbols.
+	for index := 0; index < 70; index++ {
+		path := filepath.Join("project", "duplicates", fmt.Sprintf("Base%03d.java", index))
+		facts = append(facts, projectResolverFacts(t, JavaAnalyzer{}, path, "package demo; class Base {}\n"))
+	}
+	model, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		path   string
+		parent string
+		target string
+	}{
+		{dense.Path, "demo", "Base"},
+		{dense.Path, "", "Base"},
+		{dense.Path, "", "demo.Base"},
+		{dense.Path, "demo", "Missing"},
+		{dense.Path, "", "Child063"},
+		{sparse.Path, "demo", "Base"},
+		{sparse.Path, "", "Base"},
+		{sparse.Path, "demo", "Missing"},
+	}
+	for _, tc := range cases {
+		file := model.files[projectPathKey(tc.path)]
+		qualified := ""
+		if strings.Contains(tc.target, ".") {
+			qualified = tc.target
+		} else if tc.parent != "" {
+			qualified = tc.parent + "." + tc.target
+		}
+		var want []*projectSymbolRecord
+		records := model.symbolsByFile[file.pathKey]
+		for index := range records {
+			record := &records[index]
+			if record.languageID != descriptor.ID || !isRelationEndpointKind(record.symbol.Kind) {
+				continue
+			}
+			if qualified != "" && record.qualifiedKey != qualified {
+				continue
+			}
+			if qualified == "" && record.nameKey != tc.target {
+				continue
+			}
+			want = append(want, record)
+		}
+		got := model.sameFileCandidates(file, descriptor, tc.parent, tc.target)
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("same-file candidates %q parent=%q target=%q: got=%+v want=%+v", tc.path, tc.parent, tc.target, got, want)
+		}
+	}
+	// One matching global symbol exercises the fast path; three matching
+	// symbols exercise the conservative local fallback on the same dense file.
+	for _, subset := range [][]ProjectFileFacts{{dense}, facts[:3]} {
+		candidateModel, err := BuildProjectModel(context.Background(), registry, subset, projectResolverLimitsForTest())
+		if err != nil {
+			t.Fatal(err)
+		}
+		file := candidateModel.files[projectPathKey(dense.Path)]
+		got := candidateModel.sameFileCandidates(file, descriptor, "demo", "Base")
+		if len(got) != 1 || got[0].symbol.ID != projectSymbolID(t, dense, "demo.Base") {
+			t.Fatalf("global index candidate count %d changed the local result: %+v", len(subset), got)
+		}
+	}
+}
+
 func projectResolverFacts(t *testing.T, analyzer SourceAnalyzer, path, text string) ProjectFileFacts {
 	t.Helper()
 	document := sourceDocumentForScanner(text)

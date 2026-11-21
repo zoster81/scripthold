@@ -11,6 +11,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 - Unfiltered `source_symbols.outline` now reserves only the bounded space needed for analyzed declarations instead of repeatedly growing its result array. This reduces temporary memory use without changing symbols, filters, truncation, fingerprints, or the JSON response.
 - Source-position selectors in `source_query` now reuse a bounded, immutable file-to-reference index built with each project model. This avoids scanning and normalizing unrelated source paths on every relation or context lookup, while preserving source identity, first-match order, fingerprint checks, and public results.
 - Dense per-file project relationship resolution now reuses short-lived, source-specific candidate groups rather than repeatedly scanning every declaration for each reference. This improves project model construction while keeping the same relationship evidence, ordering, ambiguity and output.
+- Same-file relationship target lookup now reuses existing symbol indexes when a target has at most one indexed candidate, instead of scanning a large source file. Other lookups retain their original local scan to protect ambiguous matches and result ordering.
 
 ## 4.1.0 - 2026-11-20
 
