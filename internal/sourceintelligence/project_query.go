@@ -310,9 +310,9 @@ func (model *ProjectModel) resolveProjectSelector(selector ProjectSelector) (pro
 		if selector.Position == nil || selector.Position.Line <= 0 || selector.Position.Column <= 0 {
 			return projectQuerySelection{}, operation.New(operation.KindInvalidInput, "position selector requires a positive position")
 		}
-		for index := range model.references {
+		for _, index := range model.referencesBySource[pathKey] {
 			reference := &model.references[index]
-			if projectPathKey(reference.Source.Path) == pathKey && rangeContainsPosition(reference.Range, *selector.Position) {
+			if rangeContainsPosition(reference.Range, *selector.Position) {
 				copy := *reference
 				return projectQuerySelection{kind: selector.Kind, pathKey: pathKey, entity: reference.Source, reference: &copy}, nil
 			}

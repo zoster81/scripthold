@@ -135,6 +135,7 @@ type ProjectModel struct {
 	references             []ProjectReference
 	definitionsByReference map[string][]RelationEntity
 	referencesByTarget     map[string][]ProjectReference
+	referencesBySource     map[string][]int
 }
 
 const defaultProjectResolutionCandidates = 64
@@ -176,6 +177,7 @@ func BuildProjectModel(ctx context.Context, registry *LanguageRegistry, input []
 		dependentsByTarget:     make(map[string][]ProjectDependency),
 		definitionsByReference: make(map[string][]RelationEntity),
 		referencesByTarget:     make(map[string][]ProjectReference),
+		referencesBySource:     make(map[string][]int),
 	}
 
 	files := make([]projectModelInputFile, len(input))
@@ -481,6 +483,16 @@ func (model *ProjectModel) buildReferences(ctx context.Context, descriptors *pro
 		}
 	}
 	sortProjectReferences(model.references)
+	// Preserve the exact global reference order without duplicating the records.
+	for index := range model.references {
+		if index&255 == 0 {
+			if err := ctx.Err(); err != nil {
+				return operation.Wrap(operation.KindCancelled, "resolve_project_reference", model.references[index].Source.Path, err)
+			}
+		}
+		pathKey := projectPathKey(model.references[index].Source.Path)
+		model.referencesBySource[pathKey] = append(model.referencesBySource[pathKey], index)
+	}
 	for key := range model.referencesByTarget {
 		sortProjectReferences(model.referencesByTarget[key])
 	}

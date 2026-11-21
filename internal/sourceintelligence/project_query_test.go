@@ -421,6 +421,104 @@ func TestProjectQueryReferencesDefinitionsInheritanceAndImplementations(t *testi
 	}
 }
 
+func TestProjectPositionSelectorsPreserveCanonicalSourceAliases(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join("project", "position-alias")
+	base := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join(root, "Base.java"), "package demo; public class Base {}\n")
+	impl := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join(root, "Impl.java"), "package demo; public class Impl extends Base {}\n")
+	sep := string(filepath.Separator)
+	alias := filepath.Dir(impl.Path) + sep + "nested" + sep + ".." + sep + filepath.Base(impl.Path)
+	if alias == impl.Path || projectPathKey(alias) != projectPathKey(impl.Path) {
+		t.Fatal("test fixture must use a different spelling for the same canonical path")
+	}
+	for index := range impl.Analysis.Analysis.Symbols {
+		impl.Analysis.Analysis.Symbols[index].Path = alias
+	}
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{impl, base}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reference ProjectReference
+	for _, candidate := range model.References() {
+		if candidate.TargetSpelling == "Base" {
+			reference = candidate
+			break
+		}
+	}
+	if reference.Source.Path != alias {
+		t.Fatalf("expected the original symbol path spelling to survive, got %q", reference.Source.Path)
+	}
+	baseID := projectSymbolID(t, base, "demo.Base")
+	position := reference.Range.Start
+	selector := ProjectSelector{Kind: ProjectSelectorPosition, Path: impl.Path, Position: &position, SourceFingerprint: impl.SourceFingerprint}
+	definitions, err := model.QueryRelations(context.Background(), RelationDefinitions, selector, ProjectSelector{}, nil, queryLimits())
+	if err != nil || len(definitions.Records) != 1 || definitions.Records[0].Target.SymbolID != baseID {
+		t.Fatalf("canonical source path relation resolution changed: %+v, err=%v", definitions, err)
+	}
+	plan, err := model.PlanContext(context.Background(), []ProjectSelector{selector}, ProjectContextOptions{
+		BudgetBytes: 4096, MaxItems: 8, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly,
+	})
+	if err != nil || !containsContextSymbol(plan.Candidates, baseID) {
+		t.Fatalf("canonical source path context resolution changed: %+v, err=%v", plan, err)
+	}
+	selector.SourceFingerprint = queryZeroDigest()
+	if _, err = model.QueryRelations(context.Background(), RelationDefinitions, selector, ProjectSelector{}, nil, queryLimits()); err == nil {
+		t.Fatal("stale source fingerprint was accepted by position selector")
+	}
+	if _, err = model.PlanContext(context.Background(), []ProjectSelector{selector}, ProjectContextOptions{
+		BudgetBytes: 4096, MaxItems: 8, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly,
+	}); err == nil {
+		t.Fatal("stale source fingerprint was accepted by context selector")
+	}
+}
+
+func TestProjectPositionSourceIndexRetainsCanonicalSortedOverlaps(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join("project", "position-order")
+	base := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join(root, "Base.java"), "package demo; public class Base {}\n")
+	contract := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join(root, "Contract.java"), "package demo; public interface Contract {}\n")
+	impl := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join(root, "Impl.java"), "package demo; public class Impl extends Base implements Contract {}\n")
+	if len(impl.Analysis.Relations) < 2 {
+		t.Fatalf("expected independent inheritance and implementation references, got %d", len(impl.Analysis.Relations))
+	}
+	// Two distinct references share one position, so the original sorted
+	// first-match rule must survive source bucketing.
+	impl.Analysis.Relations[1].Range = impl.Analysis.Relations[0].Range
+	sep := string(filepath.Separator)
+	alias := filepath.Dir(impl.Path) + sep + "nested" + sep + ".." + sep + filepath.Base(impl.Path)
+	for i := range impl.Analysis.Analysis.Symbols {
+		impl.Analysis.Analysis.Symbols[i].Path = alias
+	}
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{impl, contract, base}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := make(map[string][]int)
+	for i, reference := range model.references {
+		key := projectPathKey(reference.Source.Path)
+		expected[key] = append(expected[key], i)
+	}
+	if !reflect.DeepEqual(model.referencesBySource, expected) {
+		t.Fatalf("source index changed canonical membership or deterministic order: got=%v want=%v", model.referencesBySource, expected)
+	}
+	key := projectPathKey(impl.Path)
+	if len(expected[key]) < 2 {
+		t.Fatalf("test must exercise overlapping source references: %v", expected)
+	}
+	position := model.references[expected[key][0]].Range.Start
+	selector := ProjectSelector{Kind: ProjectSelectorPosition, Path: impl.Path, SourceFingerprint: impl.SourceFingerprint, Position: &position}
+	selected, err := model.resolveProjectSelector(selector)
+	if err != nil || selected.reference == nil || selected.reference.ID != model.references[expected[key][0]].ID {
+		t.Fatalf("position tie-break changed: selected=%+v err=%v", selected, err)
+	}
+}
+
 func TestStructuralSearchUsesNormalizedSymbolsAndRelations(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {

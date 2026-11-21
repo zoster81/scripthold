@@ -165,8 +165,9 @@ func (model *ProjectModel) contextSeedsForSelector(selector ProjectSelector) ([]
 		if selector.Position == nil || selector.Position.Line <= 0 || selector.Position.Column <= 0 {
 			return nil, operation.New(operation.KindInvalidInput, "position selector requires a positive position")
 		}
-		for _, reference := range model.references {
-			if projectPathKey(reference.Source.Path) != pathKey || !rangeContainsPosition(reference.Range, *selector.Position) {
+		for _, index := range model.referencesBySource[pathKey] {
+			reference := model.references[index]
+			if !rangeContainsPosition(reference.Range, *selector.Position) {
 				continue
 			}
 			if len(reference.Targets) > 0 {

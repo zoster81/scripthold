@@ -699,6 +699,35 @@ func BenchmarkSharedProjectQueryAndContext(b *testing.B) {
 	})
 }
 
+// BenchmarkProjectPositionSelectorModelBuild includes immutable model setup
+// to account for the memory and CPU cost of any new lookup index.
+func BenchmarkProjectPositionSelectorModelBuild(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, children := range []int{16, 64, 256} {
+		b.Run(fmt.Sprintf("files-%d", children+1), func(b *testing.B) {
+			facts := benchmarkJavaProjectFacts(b, children)
+			limits := ProjectResolverLimits{
+				MaxFiles: len(facts), MaxSymbols: 4096, MaxDependencies: 4096,
+				MaxReferences: 4096, MaxCandidatesPerResolution: 64,
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(model.references) == 0 {
+					b.Fatal("model build returned no references")
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkProjectPositionSelectorScaling(b *testing.B) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
