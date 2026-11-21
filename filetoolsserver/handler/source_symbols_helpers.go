@@ -283,7 +283,11 @@ func presentSourceOutline(files []SourceSymbolsFile, symbols []sourceintelligenc
 		node *SourceOutlineNode
 		path string
 	}
-	seen := make(map[string]ancestor, len(symbols))
+	tree := presentation == "tree"
+	var seen map[string]ancestor
+	if tree {
+		seen = make(map[string]ancestor, len(symbols))
+	}
 	for _, symbol := range symbols {
 		index, ok := byPath[symbol.Path]
 		if !ok {
@@ -295,7 +299,7 @@ func presentSourceOutline(files []SourceSymbolsFile, symbols []sourceintelligenc
 			Line:          symbol.DeclarationRange.Start.Line, Column: symbol.DeclarationRange.Start.Column,
 			Signature: symbol.Signature,
 		}
-		if presentation == "tree" && symbol.ParentID != "" {
+		if tree && symbol.ParentID != "" {
 			if parent, ok := seen[symbol.ParentID]; ok && parent.path == symbol.Path {
 				parent.node.Children = append(parent.node.Children, node)
 			} else {
@@ -306,7 +310,9 @@ func presentSourceOutline(files []SourceSymbolsFile, symbols []sourceintelligenc
 			node.ParentID = symbol.ParentID
 			out[index].Symbols = append(out[index].Symbols, node)
 		}
-		seen[symbol.ID] = ancestor{node: node, path: symbol.Path}
+		if tree {
+			seen[symbol.ID] = ancestor{node: node, path: symbol.Path}
+		}
 	}
 	return out
 }

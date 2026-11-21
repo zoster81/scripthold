@@ -11,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zoster81/scripthold/internal/config"
+	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
 
 // Complete source-derived header inventory; the connected server may run older
@@ -1331,5 +1332,75 @@ func TestSourceFileSelectionKeepsLexicographicPrefixWithoutRetainingAllPaths(t *
 		if !reflect.DeepEqual(selected, want[:expectedCount]) || truncated != (len(want) > limit) {
 			t.Fatalf("limit %d: selected=%v truncated=%t; want=%v truncated=%t", limit, selected, truncated, want[:expectedCount], len(want) > limit)
 		}
+	}
+}
+
+func TestPresentSourceOutlinePreservesCompactOrderAndTreeOwnership(t *testing.T) {
+	file := func(path string) SourceSymbolsFile {
+		return SourceSymbolsFile{Path: path, Status: "parsed", CoverageComplete: true}
+	}
+	symbol := func(path, id, parent string, line int) sourceintelligence.NormalizedSymbol {
+		return sourceintelligence.NormalizedSymbol{
+			Path: path, ID: id, Name: id, QualifiedName: id, ParentID: parent,
+			Kind: sourceintelligence.SymbolKindFunction,
+			DeclarationRange: sourceintelligence.Range{
+				Start: sourceintelligence.Position{Line: line, Column: 1},
+			},
+		}
+	}
+	node := func(id, parent string, line int) *SourceOutlineNode {
+		return &SourceOutlineNode{
+			SymbolID: id, Name: id, QualifiedName: id, ParentID: parent,
+			Kind: sourceintelligence.SymbolKindFunction, Line: line, Column: 1,
+		}
+	}
+	files := []SourceSymbolsFile{file("alpha.go"), file("beta.go")}
+	symbols := []sourceintelligence.NormalizedSymbol{
+		symbol("alpha.go", "alpha-root", "", 1),
+		symbol("alpha.go", "alpha-child", "alpha-root", 2),
+		symbol("alpha.go", "orphan", "missing", 3),
+		symbol("beta.go", "cross-file", "alpha-root", 4),
+		symbol("not-selected.go", "skipped", "", 5),
+		symbol("beta.go", "beta-root", "", 6),
+		symbol("beta.go", "beta-child", "beta-root", 7),
+	}
+
+	for _, tc := range []struct {
+		presentation string
+		want         []SourceOutlineFile
+	}{
+		{
+			presentation: "compact",
+			want: []SourceOutlineFile{
+				{Path: "alpha.go", Status: "parsed", CoverageComplete: true, Symbols: []*SourceOutlineNode{
+					node("alpha-root", "", 1), node("alpha-child", "alpha-root", 2), node("orphan", "missing", 3),
+				}},
+				{Path: "beta.go", Status: "parsed", CoverageComplete: true, Symbols: []*SourceOutlineNode{
+					node("cross-file", "alpha-root", 4), node("beta-root", "", 6), node("beta-child", "beta-root", 7),
+				}},
+			},
+		},
+		{
+			presentation: "tree",
+			want: []SourceOutlineFile{
+				{Path: "alpha.go", Status: "parsed", CoverageComplete: true, Symbols: []*SourceOutlineNode{
+					{SymbolID: "alpha-root", Name: "alpha-root", QualifiedName: "alpha-root", Kind: sourceintelligence.SymbolKindFunction, Line: 1, Column: 1,
+						Children: []*SourceOutlineNode{node("alpha-child", "", 2)}},
+					node("orphan", "missing", 3),
+				}},
+				{Path: "beta.go", Status: "parsed", CoverageComplete: true, Symbols: []*SourceOutlineNode{
+					node("cross-file", "alpha-root", 4),
+					{SymbolID: "beta-root", Name: "beta-root", QualifiedName: "beta-root", Kind: sourceintelligence.SymbolKindFunction, Line: 6, Column: 1,
+						Children: []*SourceOutlineNode{node("beta-child", "", 7)}},
+				}},
+			},
+		},
+	} {
+		t.Run(tc.presentation, func(t *testing.T) {
+			got := presentSourceOutline(files, symbols, tc.presentation)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("projection mismatch: got=%+v want=%+v", got, tc.want)
+			}
+		})
 	}
 }

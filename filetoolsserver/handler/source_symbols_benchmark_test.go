@@ -8,6 +8,8 @@ import (
 	"slices"
 	"sort"
 	"testing"
+
+	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
 
 func BenchmarkSourceSymbolsOperations(b *testing.B) {
@@ -33,6 +35,8 @@ func BenchmarkSourceSymbolsOperations(b *testing.B) {
 		input SourceSymbolsInput
 	}{
 		{name: "outline", input: SourceSymbolsInput{Operation: "outline", Presentation: "detailed", Paths: []string{path}, Language: "go", Encoding: "utf-8", MaxSymbols: 1000}},
+		{name: "tree", input: SourceSymbolsInput{Operation: "outline", Presentation: "tree", Paths: []string{path}, Language: "go", Encoding: "utf-8", MaxSymbols: 1000}},
+		{name: "compact", input: SourceSymbolsInput{Operation: "outline", Presentation: "compact", Paths: []string{path}, Language: "go", Encoding: "utf-8", MaxSymbols: 1000}},
 		{name: "digest", input: SourceSymbolsInput{Operation: "digest", Paths: []string{path}, Language: "go", Encoding: "utf-8"}},
 		{name: "find", input: SourceSymbolsInput{Operation: "find", Paths: []string{path}, Language: "go", Encoding: "utf-8", Query: "F199", Match: "exact", MaxSymbols: 16}},
 		{name: "show", input: showInput},
@@ -46,6 +50,49 @@ func BenchmarkSourceSymbolsOperations(b *testing.B) {
 				if err != nil || toolErr != nil {
 					b.Fatalf("source_symbols %s failed: err=%v toolErr=%+v", testCase.name, err, toolErr)
 				}
+			}
+		})
+	}
+}
+
+// BenchmarkSourceOutlineProjection isolates tree/compact output construction
+// from authorized file traversal, decoding, and language scanning.
+func BenchmarkSourceOutlineProjection(b *testing.B) {
+	for _, count := range []int{64, 1024} {
+		b.Run(fmt.Sprintf("symbols-%d", count), func(b *testing.B) {
+			path := "source.go"
+			files := []SourceSymbolsFile{{Path: path, Status: "parsed", CoverageComplete: true}}
+			symbols := make([]sourceintelligence.NormalizedSymbol, 0, count)
+			parent := ""
+			for i := 0; i < count; i++ {
+				id := fmt.Sprintf("symbol-%04d", i)
+				if i%4 == 0 {
+					parent = id
+				}
+				parentID := parent
+				if i%4 == 0 {
+					parentID = ""
+				}
+				symbols = append(symbols, sourceintelligence.NormalizedSymbol{
+					ID: id, Path: path, Name: id, QualifiedName: id,
+					ParentID: parentID, Kind: sourceintelligence.SymbolKindFunction,
+					DeclarationRange: sourceintelligence.Range{
+						Start: sourceintelligence.Position{Line: i + 1, Column: 1},
+						End:   sourceintelligence.Position{Line: i + 1, Column: 10},
+					},
+				})
+			}
+			for _, presentation := range []string{"tree", "compact"} {
+				b.Run(presentation, func(b *testing.B) {
+					b.ReportAllocs()
+					b.ResetTimer()
+					for i := 0; i < b.N; i++ {
+						output := presentSourceOutline(files, symbols, presentation)
+						if len(output) != 1 || len(output[0].Symbols) == 0 {
+							b.Fatal("unexpected outline projection")
+						}
+					}
+				})
 			}
 		})
 	}
