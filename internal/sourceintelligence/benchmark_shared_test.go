@@ -699,6 +699,64 @@ func BenchmarkSharedProjectQueryAndContext(b *testing.B) {
 	})
 }
 
+func BenchmarkProjectPositionSelectorScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, children := range []int{16, 64, 256} {
+		b.Run(fmt.Sprintf("files-%d", children+1), func(b *testing.B) {
+			facts := benchmarkJavaProjectFacts(b, children)
+			model, err := BuildProjectModel(context.Background(), registry, facts, ProjectResolverLimits{
+				MaxFiles: len(facts), MaxSymbols: 4096, MaxDependencies: 4096,
+				MaxReferences: 4096, MaxCandidatesPerResolution: 64,
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(model.references) == 0 {
+				b.Fatal("position benchmark needs analyzer-proven references")
+			}
+			reference := model.references[len(model.references)-1]
+			file, ok := model.files[projectPathKey(reference.Source.Path)]
+			if !ok || reference.Range.Start.Line <= 0 || reference.Range.Start.Column <= 0 {
+				b.Fatalf("invalid reference fixture: %+v", reference)
+			}
+			position := reference.Range.Start
+			selector := ProjectSelector{
+				Kind: ProjectSelectorPosition, Path: file.facts.Path,
+				SourceFingerprint: file.facts.SourceFingerprint, Position: &position,
+			}
+			if resolved, err := model.resolveProjectSelector(selector); err != nil || resolved.reference == nil {
+				b.Fatalf("position selector fixture is not a reference: %+v, err=%v", resolved, err)
+			}
+			if seeds, err := model.contextSeedsForSelector(selector); err != nil || len(seeds) == 0 {
+				b.Fatalf("context selector fixture failed: seeds=%d err=%v", len(seeds), err)
+			}
+			b.Run("relations", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					selected, err := model.resolveProjectSelector(selector)
+					if err != nil || selected.reference == nil {
+						b.Fatalf("relation position selector failed: %+v err=%v", selected, err)
+					}
+				}
+			})
+			b.Run("context", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					seeds, err := model.contextSeedsForSelector(selector)
+					if err != nil || len(seeds) == 0 {
+						b.Fatalf("context position selector failed: seeds=%d err=%v", len(seeds), err)
+					}
+				}
+			})
+		})
+	}
+}
+
 func BenchmarkCPPRawStringStart(b *testing.B) {
 	negative := strings.Repeat("ordinary_identifier + value; ", 64)
 	matches := []string{`R"tag(`, `LR"tag(`, `UR"tag(`, `uR"tag(`, `u8R"tag(`}
