@@ -6,6 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Changed
 
+- Exact `source_query.search` requests with symbol-kind filters now check whether a symbol name matches before checking its kind. This improves sparse exact searches without changing original source spellings, result ordering, continuation, output limits or public JSON. Prefix and contains searches retain their previous filtering order.
 - Structural `source_query.search` now delays result-heap allocation until the first match. With result limits of 16 or more, it holds one match before expanding to the original bounded top-K capacity when another match arrives. This reduces temporary memory for empty and single-hit searches while preserving public JSON, ordering, continuation cursors, truncation, and output limits.
 - `source_query.context` planning now uses request-local composite keys and compact parent-kind lookups instead of concatenated keys or full symbol-record copies. This reduces allocations for repeated imports and related declarations without changing public results, ordering, limits, or source-fingerprint checks.
 - `source_symbols.outline` with `presentation: "compact"` skips the ancestor lookup needed only by tree output. This avoids unnecessary temporary allocations while preserving symbol order, public fields, output limits, and the separate tree/detailed presentations.

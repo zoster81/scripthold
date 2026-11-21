@@ -1664,7 +1664,10 @@ func BenchmarkProjectStructuralSearchSparseScaling(b *testing.B) {
 				{name: "exact-late", query: fmt.Sprintf("Child%03d", children-1), match: ProjectSearchExact, want: 1},
 				{name: "exact-missing", query: "MissingClassNoMatch", match: ProjectSearchExact, want: 0},
 				{name: "exact-late-class-only", query: fmt.Sprintf("Child%03d", children-1), match: ProjectSearchExact, kinds: []string{string(SymbolKindClass)}, want: 1},
+				{name: "exact-missing-class-only", query: "MissingClassNoMatch", match: ProjectSearchExact, kinds: []string{string(SymbolKindClass)}, want: 0},
 				{name: "prefix-all", query: "Child", match: ProjectSearchPrefix, want: children},
+				{name: "prefix-all-class-only", query: "Child", match: ProjectSearchPrefix, kinds: []string{string(SymbolKindClass)}, want: children},
+				{name: "prefix-all-method-only", query: "Child", match: ProjectSearchPrefix, kinds: []string{string(SymbolKindMethod)}, want: 0},
 			}
 			for _, testCase := range testCases {
 				b.Run(testCase.name, func(b *testing.B) {

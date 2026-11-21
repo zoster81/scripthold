@@ -145,12 +145,14 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 	collector := newProjectSearchTopK(options.MaxResults)
 	collector.after = options.After
 	collector.afterOccurrences = options.AfterOccurrences
+	filterKindFirst := len(kindFilter) != 0 && matchMode != ProjectSearchExact
+	filterKindAfterText := len(kindFilter) != 0 && matchMode == ProjectSearchExact
 	for _, pathKey := range model.fileOrder {
 		if err := ctx.Err(); err != nil {
 			return ProjectSearchResult{}, operation.Wrap(operation.KindCancelled, "project_structural_search", model.files[pathKey].facts.Path, err)
 		}
 		for _, record := range model.symbolsByFile[pathKey] {
-			if len(kindFilter) > 0 {
+			if filterKindFirst {
 				if _, ok := kindFilter[strings.ToLower(string(record.symbol.Kind))]; !ok {
 					continue
 				}
@@ -159,6 +161,11 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 				!projectSearchTextMatches(record.symbol.QualifiedName, query, matchMode) &&
 				!(matchMode == ProjectSearchExact && record.symbol.MatchesOriginalName(query))) {
 				continue
+			}
+			if filterKindAfterText {
+				if _, ok := kindFilter[strings.ToLower(string(record.symbol.Kind))]; !ok {
+					continue
+				}
 			}
 			collector.append(ProjectSearchMatch{Path: record.entity.Path, Language: record.entity.Language, Name: record.symbol.Name, Kind: record.symbol.Kind, QualifiedName: record.symbol.QualifiedName, Range: record.symbol.NameRange, SymbolID: record.entity.SymbolID, SourceFingerprint: record.entity.SourceFingerprint, Evidence: record.symbol.Evidence})
 		}

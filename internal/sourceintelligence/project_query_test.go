@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/zoster81/scripthold/internal/operation"
@@ -667,6 +668,74 @@ func TestStructuralSearchUsesNormalizedSymbolsAndRelations(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("relation search = %+v", relations)
+	}
+}
+
+func TestStructuralSearchKindFiltersMatchUnfilteredPublicProjection(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join("project", "kind-filter-parity")
+	facts := []ProjectFileFacts{
+		projectResolverFacts(t, JavaAnalyzer{}, filepath.Join(root, "ChildA.java"), "package demo; public class ChildA { public void Run() {} }\n"),
+		projectResolverFacts(t, JavaAnalyzer{}, filepath.Join(root, "ChildB.java"), "package demo; public class ChildB { public void Run() {} }\n"),
+	}
+	model, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name    string
+		options ProjectSearchOptions
+	}{
+		{"exact-class", ProjectSearchOptions{Query: "ChildB", Match: ProjectSearchExact, Kinds: []string{"CLASS"}, MaxResults: 2}},
+		{"exact-missing", ProjectSearchOptions{Query: "Absent", Match: ProjectSearchExact, Kinds: []string{"class"}, MaxResults: 2}},
+		{"prefix-truncated", ProjectSearchOptions{Query: "Child", Match: ProjectSearchPrefix, Kinds: []string{" class "}, MaxResults: 1}},
+		{"prefix-rejected-kind", ProjectSearchOptions{Query: "Child", Match: ProjectSearchPrefix, Kinds: []string{"method"}, MaxResults: 8}},
+		{"contains-method", ProjectSearchOptions{Query: "Run", Match: ProjectSearchContains, Kinds: []string{"method"}, MaxResults: 8}},
+		{"filtered-evidence", ProjectSearchOptions{Query: "Child", Match: ProjectSearchPrefix, Kinds: []string{"class"}, Evidence: []SymbolEvidence{SymbolEvidenceProjectResolved}, MaxResults: 8}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rawOptions := tc.options
+			rawOptions.Kinds = nil
+			rawOptions.MaxResults = 128
+			raw, err := model.StructuralSearch(context.Background(), rawOptions)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := model.StructuralSearch(context.Background(), tc.options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			filtered := make([]ProjectSearchMatch, 0)
+			for _, match := range raw.Matches {
+				if match.SymbolID == "" {
+					continue
+				}
+				for _, kind := range tc.options.Kinds {
+					if strings.EqualFold(strings.TrimSpace(kind), string(match.Kind)) {
+						filtered = append(filtered, match)
+						break
+					}
+				}
+			}
+			want := finalizeProjectSearch(filtered, tc.options.MaxResults)
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("filtered structural result mismatch: got=%+v want=%+v", got, want)
+			}
+			gotJSON, err := json.Marshal(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantJSON, err := json.Marshal(want)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(gotJSON) != string(wantJSON) {
+				t.Fatalf("filtered JSON mismatch: got=%s want=%s", gotJSON, wantJSON)
+			}
+		})
 	}
 }
 
