@@ -512,9 +512,9 @@ func (model *ProjectModel) contextRootSymbols(pathKey string) []projectSymbolRec
 	if len(records) == 0 {
 		return nil
 	}
-	byID := make(map[string]projectSymbolRecord, len(records))
+	kindByID := make(map[string]SymbolKind, len(records))
 	for _, record := range records {
-		byID[record.symbol.ID] = record
+		kindByID[record.symbol.ID] = record.symbol.Kind
 	}
 	result := make([]projectSymbolRecord, 0, len(records))
 	for _, record := range records {
@@ -522,8 +522,8 @@ func (model *ProjectModel) contextRootSymbols(pathKey string) []projectSymbolRec
 			result = append(result, record)
 			continue
 		}
-		parent, ok := byID[record.symbol.ParentID]
-		if ok && isContextRootContainer(parent.symbol.Kind) {
+		parentKind, ok := kindByID[record.symbol.ParentID]
+		if ok && isContextRootContainer(parentKind) {
 			result = append(result, record)
 		}
 	}

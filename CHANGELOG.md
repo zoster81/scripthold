@@ -6,7 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Changed
 
-- `source_query.context` now deduplicates planned symbols using request-local composite keys instead of allocating concatenated keys for repeated imports. This reduces context-planning work without changing public results, ordering, limits, or source-fingerprint checks.
+- `source_query.context` planning now uses request-local composite keys and compact parent-kind lookups instead of concatenated keys or full symbol-record copies. This reduces allocations for repeated imports and related declarations without changing public results, ordering, limits, or source-fingerprint checks.
 
 ## 4.1.0 - 2026-11-20
 

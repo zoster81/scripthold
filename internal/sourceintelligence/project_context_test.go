@@ -205,3 +205,69 @@ func hasContextCandidate(values []ProjectContextCandidate, path string, reason C
 	}
 	return false
 }
+
+func TestProjectContextRootSymbolsPreserveParentKindsAndFallback(t *testing.T) {
+	record := func(id, parent string, kind SymbolKind) projectSymbolRecord {
+		return projectSymbolRecord{
+			symbol: NormalizedSymbol{ID: id, ParentID: parent, Kind: kind},
+			entity: RelationEntity{Path: "source.ts", SymbolID: id, QualifiedName: id},
+		}
+	}
+	cases := []struct {
+		name    string
+		records []projectSymbolRecord
+		wantIDs []string
+	}{
+		{
+			name: "root container and nested members",
+			records: []projectSymbolRecord{
+				record("root", "", SymbolKindModule),
+				record("child", "root", SymbolKindClass),
+				record("nested", "child", SymbolKindMethod),
+				record("top", "", SymbolKindClass),
+				record("orphan", "missing", SymbolKindClass),
+			},
+			wantIDs: []string{"child", "root", "top"},
+		},
+		{
+			name: "fallback when no root qualifies",
+			records: []projectSymbolRecord{
+				record("b", "missing", SymbolKindMethod),
+				record("a", "missing", SymbolKindClass),
+			},
+			wantIDs: []string{"a", "b"},
+		},
+		{
+			name: "latest parent kind replaces older container",
+			records: []projectSymbolRecord{
+				record("duplicate", "", SymbolKindModule),
+				record("child", "duplicate", SymbolKindClass),
+				record("duplicate", "", SymbolKindClass),
+			},
+			wantIDs: []string{"duplicate", "duplicate"},
+		},
+		{
+			name: "latest parent kind replaces older noncontainer",
+			records: []projectSymbolRecord{
+				record("duplicate", "", SymbolKindClass),
+				record("child", "duplicate", SymbolKindMethod),
+				record("duplicate", "", SymbolKindPackage),
+			},
+			wantIDs: []string{"child", "duplicate", "duplicate"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			model := &ProjectModel{symbolsByFile: map[string][]projectSymbolRecord{"file": tc.records}}
+			got := model.contextRootSymbols("file")
+			if len(got) != len(tc.wantIDs) {
+				t.Fatalf("root symbols=%d, want %d: %+v", len(got), len(tc.wantIDs), got)
+			}
+			for i, want := range tc.wantIDs {
+				if got[i].symbol.ID != want {
+					t.Fatalf("root symbol %d=%q, want %q", i, got[i].symbol.ID, want)
+				}
+			}
+		})
+	}
+}
