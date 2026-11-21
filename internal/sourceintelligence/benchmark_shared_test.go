@@ -1283,6 +1283,68 @@ func BenchmarkProjectContextOutgoingReferenceScaling(b *testing.B) {
 	}
 }
 
+// BenchmarkProjectReverseTargetIndexScaling measures model construction and
+// reverse-reference consumers on analyzer-proven inheritance relationships.
+// The full project model is built outside timed queries.
+func BenchmarkProjectReverseTargetIndexScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, children := range []int{16, 64, 256} {
+		b.Run(fmt.Sprintf("references-%d", children), func(b *testing.B) {
+			facts := benchmarkJavaProjectFacts(b, children)
+			limits := ProjectResolverLimits{
+				MaxFiles: len(facts), MaxSymbols: 4096, MaxDependencies: 4096,
+				MaxReferences: 4096, MaxCandidatesPerResolution: 64,
+			}
+			var baseID string
+			for _, symbol := range facts[0].Analysis.Analysis.Symbols {
+				if symbol.QualifiedName == "demo.Base" {
+					baseID = symbol.ID
+					break
+				}
+			}
+			if baseID == "" {
+				b.Fatal("base declaration was not analyzed")
+			}
+			b.Run("model-build", func(b *testing.B) {
+				b.ReportAllocs()
+				for iteration := 0; iteration < b.N; iteration++ {
+					model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+					if err != nil || len(model.referencesByTarget[baseID]) != children {
+						b.Fatalf("reverse model references=%d err=%v", len(model.referencesByTarget[baseID]), err)
+					}
+				}
+			})
+			model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+			if err != nil || len(model.referencesByTarget[baseID]) != children {
+				b.Fatalf("reverse model setup references=%d err=%v", len(model.referencesByTarget[baseID]), err)
+			}
+			b.Run("references-to", func(b *testing.B) {
+				b.ReportAllocs()
+				for iteration := 0; iteration < b.N; iteration++ {
+					values := model.ReferencesTo(baseID)
+					if len(values) != children {
+						b.Fatalf("defensive references=%d want=%d", len(values), children)
+					}
+				}
+			})
+			selector := ProjectSelector{Kind: ProjectSelectorSymbol, Path: facts[0].Path, SourceFingerprint: facts[0].SourceFingerprint, SymbolID: baseID}
+			queryLimits := ProjectQueryLimits{MaxResults: children + 8, MaxNodes: children + 8, MaxEdges: children + 8, MaxDepth: 2}
+			b.Run("relations-references", func(b *testing.B) {
+				b.ReportAllocs()
+				for iteration := 0; iteration < b.N; iteration++ {
+					result, err := model.QueryRelations(context.Background(), RelationReferences, selector, ProjectSelector{}, nil, queryLimits)
+					if err != nil || len(result.Records) != children {
+						b.Fatalf("reverse query records=%d err=%v", len(result.Records), err)
+					}
+				}
+			})
+		})
+	}
+}
+
 func benchmarkJavaProjectFacts(b *testing.B, children int) []ProjectFileFacts {
 	b.Helper()
 	facts := make([]ProjectFileFacts, 0, children+1)
