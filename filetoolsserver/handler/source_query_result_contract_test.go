@@ -3,12 +3,104 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/zoster81/scripthold/internal/operation"
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
+
+func TestSourceQueryOutputBudgetMatchesExactJSONLength(t *testing.T) {
+	matches := make([]SourceSearchMatch, 128)
+	for index := range matches {
+		matches[index] = SourceSearchMatch{
+			Path:              "src/à<&>/demo.go",
+			Language:          "go",
+			Name:              fmt.Sprintf("Name%03d😀", index),
+			QualifiedName:     fmt.Sprintf("demo.Name%03d", index),
+			Kind:              sourceintelligence.SymbolKindFunction,
+			SourceFingerprint: "sha256:fixed",
+			SymbolID:          fmt.Sprintf("symbol-%03d", index),
+		}
+	}
+	search := &SourceSearchResult{Matches: matches, NextCursor: "cursor<&>"}
+	relations := &SourceRelationsResult{Relation: sourceintelligence.RelationDependencies,
+		EvidenceScope: "indexed-relations-only"}
+	contextResult := &SourceContextResult{Items: []sourceintelligence.ContextItem{}, UsedBytes: 0, BudgetBytes: 4096}
+	cases := []struct {
+		name   string
+		output SourceQueryOutput
+	}{
+		{name: "search", output: SourceQueryOutput{Operation: "search", Search: search}},
+		{name: "concise-search", output: SourceQueryOutput{
+			Operation: "search", Presentation: "concise", Search: search, RequestedEncoding: "utf-8",
+		}},
+		{name: "relations", output: SourceQueryOutput{Operation: "relations", Relations: relations}},
+		{name: "concise-relations", output: SourceQueryOutput{
+			Operation: "relations", Presentation: "concise", Relations: relations,
+		}},
+		{name: "context", output: SourceQueryOutput{Operation: "context", Context: contextResult}},
+		{name: "concise-context", output: SourceQueryOutput{
+			Operation: "context", Presentation: "concise", Context: contextResult,
+		}},
+		{name: "empty", output: SourceQueryOutput{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := json.Marshal(tc.output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, maximum := range []int64{0, 1, int64(len(encoded)) - 1, int64(len(encoded)), int64(len(encoded)) + 1} {
+				got := enforceSourceQueryOutputBudget(tc.output, maximum)
+				if maximum < int64(len(encoded)) {
+					if operation.KindOf(got) != operation.KindLimit {
+						t.Fatalf("budget=%d bytes=%d kind=%s err=%v", maximum, len(encoded), operation.KindOf(got), got)
+					}
+					want := fmt.Sprintf("source query output size %d exceeds limit %d", len(encoded), maximum)
+					if !strings.Contains(got.Error(), want) {
+						t.Fatalf("budget=%d output length error changed: %v", maximum, got)
+					}
+				} else if got != nil {
+					t.Fatalf("budget=%d exact JSON bytes=%d unexpectedly failed: %v", maximum, len(encoded), got)
+				}
+			}
+		})
+	}
+	invalid := SourceQueryOutput{Operation: "invalid", Presentation: "concise"}
+	err := enforceSourceQueryOutputBudget(invalid, 4096)
+	if operation.KindOf(err) != operation.KindUnknown ||
+		!strings.Contains(err.Error(), "concise source query requires search, relations, or context results") {
+		t.Fatalf("custom JSON serialization error changed: %v", err)
+	}
+}
+
+func BenchmarkSourceQueryBudgetEncoding(b *testing.B) {
+	matches := make([]SourceSearchMatch, 256)
+	for index := range matches {
+		matches[index] = SourceSearchMatch{
+			Path: "src/file.go", Language: "go",
+			Name:              fmt.Sprintf("Name%03d", index),
+			QualifiedName:     fmt.Sprintf("pkg.Name%03d", index),
+			SourceFingerprint: "source-v1:fixed",
+			SymbolID:          fmt.Sprintf("symbol-%03d", index),
+		}
+	}
+	output := SourceQueryOutput{Operation: "search", Search: &SourceSearchResult{Matches: matches}}
+	if err := enforceSourceQueryOutputBudget(output, 1<<25); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		if err := enforceSourceQueryOutputBudget(output, 1<<25); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
 
 func TestSourceQueryConciseRelationsPartialAmbiguityAndStale(t *testing.T) {
 	output := SourceQueryOutput{

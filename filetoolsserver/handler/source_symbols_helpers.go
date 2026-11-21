@@ -742,17 +742,24 @@ func (counter *sourceOutputJSONByteCounter) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
-func enforceSourceOutputBudget(output SourceSymbolsOutput, maximum int64) error {
+// sourceEncodedJSONBytes measures the same JSON output size as json.Marshal,
+// without retaining the temporary encoded result. Encoder adds one newline.
+func sourceEncodedJSONBytes(value any) (int64, error) {
 	var counter sourceOutputJSONByteCounter
-	if err := json.NewEncoder(&counter).Encode(output); err != nil {
+	if err := json.NewEncoder(&counter).Encode(value); err != nil {
+		return 0, err
+	}
+	if counter.bytes == 0 {
+		return 0, operation.New(operation.KindUnknown, "source output encoder returned no data")
+	}
+	return counter.bytes - 1, nil
+}
+
+func enforceSourceOutputBudget(output SourceSymbolsOutput, maximum int64) error {
+	encodedBytes, err := sourceEncodedJSONBytes(output)
+	if err != nil {
 		return operation.Wrap(operation.KindUnknown, "source_symbols", "", err)
 	}
-	// Encoder appends one newline; Marshal (the original budget oracle)
-	// does not. The rest of the encoding uses identical default escaping.
-	if counter.bytes == 0 {
-		return operation.New(operation.KindUnknown, "source output encoder returned no data")
-	}
-	encodedBytes := counter.bytes - 1
 	if encodedBytes > maximum {
 		return operation.Wrap(operation.KindLimit, "source_symbols", "", fmt.Errorf("source output size %d exceeds limit %d", encodedBytes, maximum))
 	}
