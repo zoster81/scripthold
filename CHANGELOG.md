@@ -6,6 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Changed
 
+- Structural `source_query.search` now delays result-heap allocation until the first match. With result limits of 16 or more, it holds one match before expanding to the original bounded top-K capacity when another match arrives. This reduces temporary memory for empty and single-hit searches while preserving public JSON, ordering, continuation cursors, truncation, and output limits.
 - `source_query.context` planning now uses request-local composite keys and compact parent-kind lookups instead of concatenated keys or full symbol-record copies. This reduces allocations for repeated imports and related declarations without changing public results, ordering, limits, or source-fingerprint checks.
 - `source_symbols.outline` with `presentation: "compact"` skips the ancestor lookup needed only by tree output. This avoids unnecessary temporary allocations while preserving symbol order, public fields, output limits, and the separate tree/detailed presentations.
 - `source_symbols.outline` with `presentation: "tree"` now skips its ancestor index when no declaration has a parent. Flat outlines allocate less temporary memory while preserving nested tree ownership, symbol order, limits, and public JSON.

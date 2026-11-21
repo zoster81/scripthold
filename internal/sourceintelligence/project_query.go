@@ -942,7 +942,8 @@ type projectSearchTopK struct {
 
 func newProjectSearchTopK(maximum int) *projectSearchTopK {
 	return &projectSearchTopK{
-		matches: make(projectSearchWorstHeap, 0, minInt(maximum, 256)),
+		// Keep an empty, non-nil result without reserving a large heap up front.
+		matches: make(projectSearchWorstHeap, 0),
 		maximum: maximum,
 	}
 }
@@ -960,6 +961,18 @@ func (collector *projectSearchTopK) append(value ProjectSearchMatch) {
 		}
 	}
 	if len(collector.matches) < collector.maximum {
+		if cap(collector.matches) == 0 {
+			capacity := minInt(collector.maximum, 256)
+			if capacity >= 16 {
+				capacity = 1
+			}
+			collector.matches = make(projectSearchWorstHeap, 0, capacity)
+		} else if cap(collector.matches) == 1 && collector.maximum >= 16 {
+			// Grow once to the original bound after a second accepted match.
+			expanded := make(projectSearchWorstHeap, len(collector.matches), minInt(collector.maximum, 256))
+			copy(expanded, collector.matches)
+			collector.matches = expanded
+		}
 		collector.matches = append(collector.matches, value)
 		// Repair only the new leaf; avoid boxing retained matches in heap.Push.
 		heap.Fix(&collector.matches, len(collector.matches)-1)

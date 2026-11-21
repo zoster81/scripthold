@@ -747,6 +747,110 @@ func TestProjectSearchContinuesWithoutSkippingEqualKeys(t *testing.T) {
 	}
 }
 
+func TestProjectSearchTopKDefersUnmatchedHeapAllocation(t *testing.T) {
+	for _, maximum := range []int{1, 16, 256, 4096} {
+		t.Run(fmt.Sprintf("limit-%d", maximum), func(t *testing.T) {
+			collector := newProjectSearchTopK(maximum)
+			if collector.matches == nil {
+				t.Fatal("unmatched search must preserve a non-nil empty slice")
+			}
+			if capacity := cap(collector.matches); capacity != 0 {
+				t.Fatalf("unmatched search reserved %d records before any match", capacity)
+			}
+			got, err := json.Marshal(collector.result())
+			if err != nil {
+				t.Fatal(err)
+			}
+			const want = `{"Matches":[],"Truncated":false,"LastOccurrences":0}`
+			if string(got) != want {
+				t.Fatalf("empty search JSON = %s, want %s", got, want)
+			}
+		})
+	}
+}
+
+func TestProjectSearchTopKUsesSmallStorageUntilSecondMatch(t *testing.T) {
+	for _, maximum := range []int{1, 7, 16, 64, 256, 4096} {
+		t.Run(fmt.Sprintf("limit-%d", maximum), func(t *testing.T) {
+			collector := newProjectSearchTopK(maximum)
+			collector.append(ProjectSearchMatch{Name: "First"})
+			wantFirst := minInt(maximum, 256)
+			if maximum >= 16 {
+				wantFirst = 1
+			}
+			if got := cap(collector.matches); got != wantFirst {
+				t.Fatalf("first match capacity=%d, want=%d", got, wantFirst)
+			}
+			if maximum > 1 {
+				collector.append(ProjectSearchMatch{Name: "Second"})
+				if got, want := cap(collector.matches), minInt(maximum, 256); got != want {
+					t.Fatalf("second match capacity=%d, want=%d", got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestProjectSearchTopKLazyAllocationMatchesOriginalOrderingAndJSON(t *testing.T) {
+	records := make([]ProjectSearchMatch, 320)
+	for index := range records {
+		// Identical groups exercise stable repeated anchors and last occurrences.
+		records[index] = ProjectSearchMatch{
+			Path:          fmt.Sprintf("project/item-%03d.ts", index/4),
+			Name:          fmt.Sprintf("Item%03d", index/4),
+			QualifiedName: fmt.Sprintf("demo.Item%03d", index/4),
+		}
+	}
+	anchor := records[16]
+	for _, tc := range []struct {
+		name             string
+		maximum          int
+		records          []ProjectSearchMatch
+		after            *ProjectSearchMatch
+		afterOccurrences int
+	}{
+		{name: "empty-limit-one", maximum: 1},
+		{name: "empty-large-limit", maximum: 4096},
+		{name: "one-late-match", maximum: 512, records: records[319:]},
+		{name: "all-small-limit", maximum: 1, records: records},
+		{name: "all-truncated", maximum: 32, records: records},
+		{name: "all-untruncated", maximum: 512, records: records},
+		{name: "repeated-anchor", maximum: 32, records: records, after: &anchor, afterOccurrences: 2},
+		{name: "continuation-no-matches", maximum: 512, records: records[:12], after: &anchor, afterOccurrences: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			legacy := &projectSearchTopK{
+				matches:          make(projectSearchWorstHeap, 0, minInt(tc.maximum, 256)),
+				maximum:          tc.maximum,
+				after:            tc.after,
+				afterOccurrences: tc.afterOccurrences,
+			}
+			candidate := newProjectSearchTopK(tc.maximum)
+			candidate.after, candidate.afterOccurrences = tc.after, tc.afterOccurrences
+			for _, record := range tc.records {
+				legacy.append(record)
+				candidate.append(record)
+			}
+			want, got := legacy.result(), candidate.result()
+			if !reflect.DeepEqual(got, want) || candidate.seenAfter != legacy.seenAfter {
+				t.Fatalf("top-K differs from original: got=%+v want=%+v, seenAfter=%d/%d",
+					got, want, candidate.seenAfter, legacy.seenAfter)
+			}
+			legacyJSON, err := json.Marshal(want)
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidateJSON, err := json.Marshal(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(candidateJSON) != string(legacyJSON) {
+				t.Fatalf("top-K JSON differs: got=%s want=%s", candidateJSON, legacyJSON)
+			}
+		})
+	}
+}
+
 func TestProjectStructuralSearchRejectsInvalidContinuation(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
