@@ -164,26 +164,31 @@ func (h *Handler) collectBoundedSourceFiles(ctx context.Context, paths, includes
 	return []string(selected), truncated, nil
 }
 
-func (h *Handler) collectSourceSymbolFiles(
+// collectSourceRequestFiles preserves the ordered authorization and aggregate
+// preflight shared by source_symbols and source_query. The latter still performs
+// its separate content fingerprint and index-generation checks afterward.
+func (h *Handler) collectSourceRequestFiles(
 	ctx context.Context,
-	input SourceSymbolsInput,
+	operationName string,
+	paths, includes, excludes []string,
+	respectGitignore *bool,
 	maxFiles int,
 	limits config.SourceConfig,
-) ([]string, bool, *mcp.CallToolResult) {
-	validatedRoots := make([]string, 0, len(input.Paths))
-	for _, path := range input.Paths {
+) ([]string, []string, bool, *mcp.CallToolResult) {
+	validatedRoots := make([]string, 0, len(paths))
+	for _, path := range paths {
 		validated := h.ValidatePath(path)
 		if !validated.Ok() {
-			return nil, false, validated.Result
+			return nil, nil, false, validated.Result
 		}
 		if _, err := os.Stat(validated.Path); err != nil {
-			return nil, false, errorResultFromError(operation.Wrap(operation.KindNotFound, "source_symbols", validated.Path, err))
+			return nil, nil, false, errorResultFromError(operation.Wrap(operation.KindNotFound, operationName, validated.Path, err))
 		}
 		validatedRoots = append(validatedRoots, validated.Path)
 	}
-	files, selectionTruncated, collectErr := h.collectBoundedSourceFiles(ctx, validatedRoots, input.Includes, input.Excludes, shouldRespectGitignore(input.RespectGitignore), maxFiles)
+	files, selectionTruncated, collectErr := h.collectBoundedSourceFiles(ctx, validatedRoots, includes, excludes, shouldRespectGitignore(respectGitignore), maxFiles)
 	if collectErr != nil {
-		return nil, false, errorResultFromError(collectErr)
+		return nil, nil, false, errorResultFromError(collectErr)
 	}
 	var aggregateBytes int64
 	for _, path := range files {
@@ -192,11 +197,24 @@ func (h *Handler) collectSourceSymbolFiles(
 			continue
 		}
 		if info.Size() > limits.MaxAggregateBytes-aggregateBytes {
-			return nil, false, errorResultWithCode(ErrCodeLimit, fmt.Sprintf("selected source bytes exceed aggregate limit %d", limits.MaxAggregateBytes))
+			return nil, nil, false, errorResultWithCode(ErrCodeLimit, fmt.Sprintf("selected source bytes exceed aggregate limit %d", limits.MaxAggregateBytes))
 		}
 		aggregateBytes += info.Size()
 	}
-	return files, selectionTruncated, nil
+	return validatedRoots, files, selectionTruncated, nil
+}
+
+func (h *Handler) collectSourceSymbolFiles(
+	ctx context.Context,
+	input SourceSymbolsInput,
+	maxFiles int,
+	limits config.SourceConfig,
+) ([]string, bool, *mcp.CallToolResult) {
+	_, files, truncated, failed := h.collectSourceRequestFiles(
+		ctx, "source_symbols", input.Paths, input.Includes, input.Excludes,
+		input.RespectGitignore, maxFiles, limits,
+	)
+	return files, truncated, failed
 }
 
 func buildSourceSymbolsOutput(

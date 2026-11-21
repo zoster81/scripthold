@@ -15,6 +15,65 @@ import (
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
 
+func TestSourceRequestFileSelectionParity(t *testing.T) {
+	root := t.TempDir()
+	a := filepath.Join(root, "a.go")
+	b := filepath.Join(root, "b.go")
+	c := filepath.Join(root, "c.go")
+	for _, path := range []string{a, b, c} {
+		if err := os.WriteFile(path, []byte("abc"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := NewHandler([]string{root})
+	outside := t.TempDir()
+	tests := []struct {
+		name, operation string
+		paths           []string
+		maxFiles        int
+		maxFileBytes    int64
+		maxAggregate    int64
+		wantFiles       []string
+		wantTruncated   bool
+		wantError       string
+	}{
+		{name: "sorted bounded symbols", operation: "source_symbols", paths: []string{root}, maxFiles: 2, maxFileBytes: 10, maxAggregate: 20, wantFiles: []string{a, b}, wantTruncated: true},
+		{name: "sorted bounded query", operation: "source_query", paths: []string{root}, maxFiles: 2, maxFileBytes: 10, maxAggregate: 20, wantFiles: []string{a, b}, wantTruncated: true},
+		{name: "aggregate symbols", operation: "source_symbols", paths: []string{root}, maxFiles: 3, maxFileBytes: 10, maxAggregate: 5, wantError: ErrCodeLimit},
+		{name: "aggregate query", operation: "source_query", paths: []string{root}, maxFiles: 3, maxFileBytes: 10, maxAggregate: 5, wantError: ErrCodeLimit},
+		{name: "oversized files excluded from aggregate", operation: "source_query", paths: []string{root}, maxFiles: 3, maxFileBytes: 2, maxAggregate: 1, wantFiles: []string{a, b, c}},
+		{name: "missing symbols root", operation: "source_symbols", paths: []string{filepath.Join(root, "missing.go")}, maxFiles: 3, maxFileBytes: 10, maxAggregate: 20, wantError: ErrCodeNotFound},
+		{name: "missing query root", operation: "source_query", paths: []string{filepath.Join(root, "missing.go")}, maxFiles: 3, maxFileBytes: 10, maxAggregate: 20, wantError: ErrCodeNotFound},
+		{name: "denied query root", operation: "source_query", paths: []string{outside}, maxFiles: 3, maxFileBytes: 10, maxAggregate: 20, wantError: ErrCodeAccessDenied},
+		{name: "invalid maximum", operation: "source_symbols", paths: []string{root}, maxFiles: 0, maxFileBytes: 10, maxAggregate: 20, wantError: ErrCodeInvalidInput},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			limits := h.sourceLimits()
+			limits.MaxFileBytes = tc.maxFileBytes
+			limits.MaxAggregateBytes = tc.maxAggregate
+			roots, files, truncated, failed := h.collectSourceRequestFiles(
+				context.Background(), tc.operation, tc.paths, nil, nil, nil, tc.maxFiles, limits,
+			)
+			if tc.wantError != "" {
+				if failed == nil || !failed.IsError || failed.Meta[ErrorCodeMetaKey] != tc.wantError {
+					t.Fatalf("error result=%+v, want %s", failed, tc.wantError)
+				}
+				if roots != nil || files != nil || truncated {
+					t.Fatalf("failed selection leaked state roots=%v files=%v truncated=%t", roots, files, truncated)
+				}
+				return
+			}
+			if failed != nil {
+				t.Fatalf("unexpected selection error: %+v", failed)
+			}
+			if len(roots) != 1 || !reflect.DeepEqual(files, tc.wantFiles) || truncated != tc.wantTruncated {
+				t.Fatalf("selection roots=%v files=%v truncated=%t; want files=%v truncated=%t", roots, files, truncated, tc.wantFiles, tc.wantTruncated)
+			}
+		})
+	}
+}
+
 // Complete source-derived header inventory; the connected server may run older
 // C macro parsing and must not be conflated with development handler results.
 func TestSourceSymbolsOriginalCJSONUtilsHeader(t *testing.T) {
