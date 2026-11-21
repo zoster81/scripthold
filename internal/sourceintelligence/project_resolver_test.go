@@ -751,6 +751,88 @@ func TestProjectSymbolIDIndexPreservesCompleteContextPlans(t *testing.T) {
 	}
 }
 
+func TestProjectResolverReverseTargetViewParity(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name      string
+		children  int
+		ambiguous bool
+		duplicate bool
+	}{
+		{name: "sparse", children: 16},
+		{name: "dense", children: 64},
+		{name: "ambiguous", children: 64, ambiguous: true},
+		{name: "duplicate-identities", children: 64, duplicate: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			facts := []ProjectFileFacts{projectResolverFacts(t, JavaAnalyzer{}, "project/reverse/Base.java", "package demo; public class Base {}\n")}
+			if tc.ambiguous {
+				facts = append(facts, projectResolverFacts(t, JavaAnalyzer{}, "project/reverse/BaseCopy.java", "package demo; public class Base {}\n"))
+			}
+			for index := 0; index < tc.children; index++ {
+				path := fmt.Sprintf("project/reverse/Child%03d.java", index)
+				text := fmt.Sprintf("package demo; public class Child%03d extends Base {}\n", index)
+				child := projectResolverFacts(t, JavaAnalyzer{}, path, text)
+				if tc.duplicate && index == 0 {
+					relation := child.Analysis.Relations[0]
+					for repeat := 1; repeat < 64; repeat++ {
+						child.Analysis.Relations = append(child.Analysis.Relations, relation)
+					}
+				}
+				facts = append(facts, child)
+			}
+			model, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			baseCount := 1
+			if tc.ambiguous {
+				baseCount++
+			}
+			for _, base := range facts[:baseCount] {
+				baseID := projectSymbolID(t, base, "demo.Base")
+				want := make([]ProjectReference, 0)
+				for _, reference := range model.References() {
+					for _, target := range reference.Targets {
+						if target.SymbolID == baseID {
+							want = append(want, reference)
+						}
+					}
+				}
+				sortProjectReferences(want)
+				got := model.ReferencesTo("  " + baseID + "  ")
+				if !reflect.DeepEqual(got, want) {
+					t.Fatalf("reverse reference mismatch for %q: got %d want %d", baseID, len(got), len(want))
+				}
+				selector := querySymbolSelector(base, baseID)
+				limits := ProjectQueryLimits{MaxResults: len(want) + 8, MaxNodes: len(want) + 8, MaxEdges: len(want) + 8, MaxDepth: 2}
+				result, err := model.QueryRelations(context.Background(), RelationReferences, selector, ProjectSelector{}, nil, limits)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := len(result.Records); got != len(want) {
+					t.Fatalf("reverse query count=%d want=%d", got, len(want))
+				}
+				if len(got) > 0 {
+					got[0].Source.Path = "modified"
+					if len(got[0].Targets) > 0 {
+						got[0].Targets[0].Path = "modified"
+					}
+					if !reflect.DeepEqual(model.ReferencesTo(baseID), want) {
+						t.Fatal("reverse reference snapshot aliases model storage")
+					}
+				}
+			}
+			if missing := model.ReferencesTo("missing"); missing == nil || len(missing) != 0 {
+				t.Fatalf("missing references must retain non-nil empty snapshot: %#v", missing)
+			}
+		})
+	}
+}
+
 func projectResolverFacts(t *testing.T, analyzer SourceAnalyzer, path, text string) ProjectFileFacts {
 	t.Helper()
 	document := sourceDocumentForScanner(text)

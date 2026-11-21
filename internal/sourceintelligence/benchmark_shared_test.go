@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unsafe"
 )
 
 var cppRawStringStartBenchmarkSink int
@@ -1338,6 +1339,67 @@ func BenchmarkProjectReverseTargetIndexScaling(b *testing.B) {
 					result, err := model.QueryRelations(context.Background(), RelationReferences, selector, ProjectSelector{}, nil, queryLimits)
 					if err != nil || len(result.Records) != children {
 						b.Fatalf("reverse query records=%d err=%v", len(result.Records), err)
+					}
+				}
+			})
+		})
+	}
+}
+
+// BenchmarkProjectReverseTargetFanoutScaling records the construction cost and
+// retained backing-array footprint when each source reference has multiple
+// equally plausible target declarations. Public lookup still clones snapshots.
+func BenchmarkProjectReverseTargetFanoutScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	const children = 128
+	for _, definitions := range []int{1, 4, 8, 16} {
+		b.Run(fmt.Sprintf("targets-%d", definitions), func(b *testing.B) {
+			facts := make([]ProjectFileFacts, 0, definitions+children)
+			for index := 0; index < definitions; index++ {
+				path := fmt.Sprintf("project/benchmark/Base%03d.java", index)
+				facts = append(facts, benchmarkAnalyzerFacts(b, JavaAnalyzer{}, path, "package demo; public class Base {}\n"))
+			}
+			for index := 0; index < children; index++ {
+				path := fmt.Sprintf("project/benchmark/Child%03d.java", index)
+				text := fmt.Sprintf("package demo; public class Child%03d extends Base {}\n", index)
+				facts = append(facts, benchmarkAnalyzerFacts(b, JavaAnalyzer{}, path, text))
+			}
+			limits := ProjectResolverLimits{MaxFiles: len(facts), MaxSymbols: 4096, MaxDependencies: 4096, MaxReferences: 4096, MaxCandidatesPerResolution: 64}
+			baseID := ""
+			for _, symbol := range facts[0].Analysis.Analysis.Symbols {
+				if symbol.QualifiedName == "demo.Base" {
+					baseID = symbol.ID
+					break
+				}
+			}
+			if baseID == "" {
+				b.Fatal("base symbol missing")
+			}
+			sample, err := BuildProjectModel(context.Background(), registry, facts, limits)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if got := len(sample.ReferencesTo(baseID)); got != children {
+				b.Fatalf("baseline reverse=%d, want %d", got, children)
+			}
+			capacity := 0
+			for _, bucket := range sample.referencesByTarget {
+				capacity += cap(bucket)
+			}
+			bucketBytes := capacity * int(unsafe.Sizeof(ProjectReference{}))
+			b.Run("model-build", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ReportMetric(float64(bucketBytes), "reverse-bucket-B")
+				for iteration := 0; iteration < b.N; iteration++ {
+					model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+					if err != nil {
+						b.Fatal(err)
+					}
+					if got := len(model.referencesByTarget[baseID]); got != children {
+						b.Fatalf("model reverse=%d, want %d", got, children)
 					}
 				}
 			})
