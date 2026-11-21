@@ -1451,6 +1451,59 @@ func TestBuildSourceSymbolsOutputPreservesBoundedSelectionAndJSON(t *testing.T) 
 	}
 }
 
+func TestPresentSourceOutlineFlatRootsMatchCompactAcrossFiles(t *testing.T) {
+	files := []SourceSymbolsFile{
+		{Path: "first.go", Status: "parsed", CoverageComplete: true},
+		{Path: "second.go", Status: "parsed", CoverageComplete: true},
+	}
+	for _, count := range []int{0, 1, 64, 1024} {
+		t.Run(fmt.Sprintf("symbols-%d", count), func(t *testing.T) {
+			symbols := make([]sourceintelligence.NormalizedSymbol, count)
+			for index := range symbols {
+				path := "skipped.go"
+				switch index % 3 {
+				case 0:
+					path = "first.go"
+				case 1:
+					path = "second.go"
+				}
+				symbols[index] = sourceintelligence.NormalizedSymbol{
+					Path: path, ID: fmt.Sprintf("flat-%04d", index),
+					Name:          fmt.Sprintf("Flat%04d", index),
+					QualifiedName: fmt.Sprintf("pkg.Flat%04d", index),
+					Kind:          sourceintelligence.SymbolKindFunction,
+					DeclarationRange: sourceintelligence.Range{
+						Start: sourceintelligence.Position{Line: index + 1, Column: 1},
+					},
+				}
+			}
+			tree := presentSourceOutline(files, symbols, "tree")
+			compact := presentSourceOutline(files, symbols, "compact")
+			if !reflect.DeepEqual(tree, compact) {
+				t.Fatalf("flat-root tree diverged from compact: tree=%+v compact=%+v", tree, compact)
+			}
+			treeJSON, err := json.Marshal(tree)
+			if err != nil {
+				t.Fatal(err)
+			}
+			compactJSON, err := json.Marshal(compact)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(treeJSON) != string(compactJSON) {
+				t.Fatalf("flat-root public JSON differs: tree=%s compact=%s", treeJSON, compactJSON)
+			}
+			for index := range tree {
+				for _, node := range tree[index].Symbols {
+					if node.ParentID != "" || len(node.Children) != 0 {
+						t.Fatalf("flat-root symbol unexpectedly has parent/children: %+v", node)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestPresentSourceOutlinePreservesCompactOrderAndTreeOwnership(t *testing.T) {
 	file := func(path string) SourceSymbolsFile {
 		return SourceSymbolsFile{Path: path, Status: "parsed", CoverageComplete: true}

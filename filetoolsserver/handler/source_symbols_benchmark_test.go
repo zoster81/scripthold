@@ -98,6 +98,41 @@ func BenchmarkSourceOutlineProjection(b *testing.B) {
 	}
 }
 
+// BenchmarkSourceOutlineProjectionSparsePaths protects cases where the caller
+// selected few or no symbols from a much larger cross-file input.
+func BenchmarkSourceOutlineProjectionSparsePaths(b *testing.B) {
+	const count = 1024
+	files := []SourceSymbolsFile{{Path: "selected.go", Status: "parsed", CoverageComplete: true}}
+	for _, retained := range []int{0, 1, 32, 512, 1024} {
+		b.Run(fmt.Sprintf("retained-%d", retained), func(b *testing.B) {
+			symbols := make([]sourceintelligence.NormalizedSymbol, count)
+			for index := range symbols {
+				path := "skipped.go"
+				if index < retained {
+					path = "selected.go"
+				}
+				symbols[index] = sourceintelligence.NormalizedSymbol{
+					ID: fmt.Sprintf("symbol-%04d", index), Path: path,
+					Name: fmt.Sprintf("Item%04d", index),
+					Kind: sourceintelligence.SymbolKindFunction,
+				}
+			}
+			for _, presentation := range []string{"tree", "compact"} {
+				b.Run(presentation, func(b *testing.B) {
+					b.ReportAllocs()
+					b.ResetTimer()
+					for iteration := 0; iteration < b.N; iteration++ {
+						output := presentSourceOutline(files, symbols, presentation)
+						if len(output) != 1 || len(output[0].Symbols) != retained {
+							b.Fatalf("projection symbols=%d, want %d", len(output[0].Symbols), retained)
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
 // BenchmarkSourceSymbolsOutputAssembly isolates result-slice growth from
 // filesystem access, language analysis, and JSON response encoding.
 func BenchmarkSourceSymbolsOutputAssembly(b *testing.B) {

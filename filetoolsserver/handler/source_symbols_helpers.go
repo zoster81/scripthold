@@ -319,7 +319,14 @@ func presentSourceOutline(files []SourceSymbolsFile, symbols []sourceintelligenc
 	tree := presentation == "tree"
 	var seen map[string]ancestor
 	if tree {
-		seen = make(map[string]ancestor, len(symbols))
+		// Flat outlines cannot reference an earlier parent, so they do not
+		// need the potentially large ancestor index.
+		for _, symbol := range symbols {
+			if symbol.ParentID != "" {
+				seen = make(map[string]ancestor, len(symbols))
+				break
+			}
+		}
 	}
 	for _, symbol := range symbols {
 		index, ok := byPath[symbol.Path]
@@ -343,7 +350,7 @@ func presentSourceOutline(files []SourceSymbolsFile, symbols []sourceintelligenc
 			node.ParentID = symbol.ParentID
 			out[index].Symbols = append(out[index].Symbols, node)
 		}
-		if tree {
+		if seen != nil {
 			seen[symbol.ID] = ancestor{node: node, path: symbol.Path}
 		}
 	}
