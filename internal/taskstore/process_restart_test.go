@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -77,7 +78,7 @@ func TestTaskstoreConcurrencyProcessHelper(t *testing.T) {
 			}
 		}
 	case "worker", "supervisor":
-		if len(args) != 5 {
+		if len(args) != 6 {
 			os.Exit(2)
 		}
 		var concurrency int
@@ -88,20 +89,28 @@ func TestTaskstoreConcurrencyProcessHelper(t *testing.T) {
 			var store *Store
 			store, err = Initialize(args[1], []string{args[2]}, limits)
 			if err == nil {
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
-				go func() {
-					_ = awaitRestartTestMarker(args[4], 90*time.Second)
-					cancel()
-				}()
-				if args[0] == "worker" {
-					var worker *Worker
-					worker, err = NewWorker(store, os.Args[0], []string{args[2]}, WorkerPolicy{}, nil)
-					if err == nil {
-						err = worker.Run(ctx)
+				var readyLog *os.File
+				readyLog, err = os.Create(args[5])
+				if err == nil {
+					logger := slog.New(slog.NewTextHandler(readyLog, nil))
+					ctx, cancel := context.WithCancel(context.Background())
+					go func() {
+						_ = awaitRestartTestMarker(args[4], 90*time.Second)
+						cancel()
+					}()
+					if args[0] == "worker" {
+						var worker *Worker
+						worker, err = NewWorker(store, os.Args[0], []string{args[2]}, WorkerPolicy{}, logger)
+						if err == nil {
+							err = worker.Run(ctx)
+						}
+					} else {
+						err = RunSupervisor(ctx, store, os.Args[0], []string{args[2]}, logger)
 					}
-				} else {
-					err = RunSupervisor(ctx, store, os.Args[0], []string{args[2]}, nil)
+					cancel()
+					if closeErr := readyLog.Close(); err == nil {
+						err = closeErr
+					}
 				}
 			}
 		}
@@ -163,31 +172,66 @@ func finishRestartTestProcess(t *testing.T, cmd *exec.Cmd) {
 	}
 }
 
-// waitRestartTestLock waits for the child to hold the real OS lock. Under
-// race-instrumented parallel package tests, Windows process startup can exceed
-// the ordinary five-second test handshake, even when the lock is healthy.
-func waitRestartTestLock(t *testing.T, child *exec.Cmd, lockPath string) {
-	t.Helper()
-	deadline := time.Now().Add(20 * time.Second)
+// waitRestartTestLock requires both a child-specific post-lock startup log and
+// the OS lock being held. Another process's lock cannot attest child readiness.
+func waitRestartTestLock(child *exec.Cmd, lockPath, readyPath string, timeout time.Duration) error {
+	expected := "task worker started"
+	if filepath.Base(lockPath) == "supervisor.lock" {
+		expected = "task supervisor started"
+	}
+	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		lock, err := tryAcquireWorkerLock(lockPath)
-		if err != nil {
-			if !strings.Contains(err.Error(), "already running") {
-				t.Fatalf("unexpected worker lock error: %v", err)
-			}
-			return // The child or another process holds the exclusive lock.
+		logData, err := os.ReadFile(readyPath)
+		if err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("read helper readiness: %w", err)
 		}
-		_ = lock.close()
+		if strings.Contains(string(logData), expected) {
+			lock, lockErr := tryAcquireWorkerLock(lockPath)
+			if lockErr != nil {
+				if strings.Contains(lockErr.Error(), "already running") {
+					return nil
+				}
+				return fmt.Errorf("unexpected worker lock error: %w", lockErr)
+			}
+			_ = lock.close()
+			return fmt.Errorf("helper startup log was emitted without holding %q", filepath.Base(lockPath))
+		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	// Reap the child before failing so an unresponsive helper cannot retain
-	// test-directory handles and hide the original readiness failure.
 	if child.Process != nil {
 		_ = child.Process.Kill()
 	}
 	waitErr := child.Wait()
-	t.Fatalf("helper never acquired exclusive lock %q: process=%v, stderr=%q",
+	return fmt.Errorf("helper did not prove exclusive lock %q: process=%v, stderr=%q",
 		filepath.Base(lockPath), waitErr, child.Stderr.(*bytes.Buffer).String())
+}
+
+// A busy lock is not evidence that the newly launched helper acquired it.
+func TestRestartLockReadinessRejectsUnrelatedOwner(t *testing.T) {
+	base := canonicalTaskStoreTestDir(t)
+	public := filepath.Join(base, "public")
+	if err := os.Mkdir(public, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := Initialize(filepath.Join(base, "tasks"), []string{public}, testLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := tryAcquireWorkerLock(filepath.Join(store.root, "supervisor.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.close()
+	ready := filepath.Join(base, "foreign-ready")
+	child := startRestartTestProcess(t, "supervisor", store.root, public, "4", filepath.Join(base, "stop"), ready)
+	if err := waitRestartTestLock(child, filepath.Join(store.root, "supervisor.lock"), ready, 800*time.Millisecond); err == nil {
+		t.Fatal("unrelated lock holder falsely satisfied child readiness")
+	}
+	// The child may not start within 800ms on a loaded Windows host. Only
+	// require rejection and absence of the child-specific post-lock record.
+	if data, err := os.ReadFile(ready); err == nil && strings.Contains(string(data), "task supervisor started") {
+		t.Fatal("foreign lock was incorrectly reported as acquired by the child")
+	}
 }
 
 func TestConcurrencyRestartAcrossWorkerSupervisorAndActiveExecutorProcesses(t *testing.T) {
@@ -222,7 +266,6 @@ func TestConcurrencyRestartAcrossWorkerSupervisorAndActiveExecutorProcesses(t *t
 		token := testRandomHex(t, 32)
 		started := filepath.Join(base, fmt.Sprintf("payload-started-%d", i))
 		release := filepath.Join(base, fmt.Sprintf("payload-release-%d", i))
-		t.Cleanup(func() { _ = os.WriteFile(release, []byte("release"), 0o600) })
 		launch := launchRecord{
 			Program:          os.Args[0],
 			Args:             []string{"-test.run=^TestTaskstoreConcurrencyProcessHelper$", "--", "payload", started, release},
@@ -242,6 +285,28 @@ func TestConcurrencyRestartAcrossWorkerSupervisorAndActiveExecutorProcesses(t *t
 			t.Fatal(err)
 		}
 		executor := startRestartTestProcess(t, "executor", store.root, admitted.Task.ID, token)
+		// Cleanup callbacks run last-in-first-out: release and reap the executor
+		// before startRestartTestProcess's fallback process kill runs.
+		t.Cleanup(func() {
+			if executor.ProcessState != nil {
+				return
+			}
+			if err := os.WriteFile(release, []byte("release"), 0o600); err != nil {
+				t.Errorf("release executor payload during cleanup: %v", err)
+			}
+			completed := make(chan error, 1)
+			go func() { completed <- executor.Wait() }()
+			select {
+			case err := <-completed:
+				if err != nil {
+					t.Errorf("executor cleanup failed: %v", err)
+				}
+			case <-time.After(20 * time.Second):
+				_ = executor.Process.Kill()
+				<-completed
+				t.Error("executor cleanup did not finish within twenty seconds")
+			}
+		})
 		if err := awaitRestartTestMarker(started, 5*time.Second); err != nil {
 			t.Fatal(err)
 		}
@@ -250,12 +315,18 @@ func TestConcurrencyRestartAcrossWorkerSupervisorAndActiveExecutorProcesses(t *t
 
 	for _, concurrency := range []int{8, 12, 1, 4} {
 		stopWorker := filepath.Join(base, fmt.Sprintf("worker-stop-%d", concurrency))
-		worker := startRestartTestProcess(t, "worker", store.root, public, strconv.Itoa(concurrency), stopWorker)
-		waitRestartTestLock(t, worker, filepath.Join(store.root, "worker.lock"))
+		workerReady := filepath.Join(base, fmt.Sprintf("worker-ready-%d", concurrency))
+		worker := startRestartTestProcess(t, "worker", store.root, public, strconv.Itoa(concurrency), stopWorker, workerReady)
+		if err := waitRestartTestLock(worker, filepath.Join(store.root, "worker.lock"), workerReady, 20*time.Second); err != nil {
+			t.Fatal(err)
+		}
 
 		stopSupervisor := filepath.Join(base, fmt.Sprintf("supervisor-stop-%d", concurrency))
-		supervisor := startRestartTestProcess(t, "supervisor", store.root, public, strconv.Itoa(concurrency), stopSupervisor)
-		waitRestartTestLock(t, supervisor, filepath.Join(store.root, "supervisor.lock"))
+		supervisorReady := filepath.Join(base, fmt.Sprintf("supervisor-ready-%d", concurrency))
+		supervisor := startRestartTestProcess(t, "supervisor", store.root, public, strconv.Itoa(concurrency), stopSupervisor, supervisorReady)
+		if err := waitRestartTestLock(supervisor, filepath.Join(store.root, "supervisor.lock"), supervisorReady, 20*time.Second); err != nil {
+			t.Fatal(err)
+		}
 
 		frontend := startRestartTestProcess(t, "frontend", store.root, public, strconv.Itoa(concurrency), live[0].id, live[1].id)
 		finishRestartTestProcess(t, frontend)
