@@ -17,37 +17,42 @@ import (
 
 // Keep the lexical generic stripping contract unchanged for plain names,
 // Unicode spelling, invalid UTF-8 and unbalanced brackets.
-func TestStripBalancedGenericArgumentsParity(t *testing.T) {
-	legacy := func(value string) string {
-		var builder strings.Builder
-		depth := 0
-		for _, char := range value {
-			switch char {
-			case '<':
-				depth++
-			case '>':
-				if depth == 0 {
-					return strings.TrimSpace(value)
-				}
-				depth--
-			default:
-				if depth == 0 {
-					builder.WriteRune(char)
-				}
+func legacyStripBalancedGenericArguments(value string) string {
+	var builder strings.Builder
+	depth := 0
+	for _, char := range value {
+		switch char {
+		case '<':
+			depth++
+		case '>':
+			if depth == 0 {
+				return strings.TrimSpace(value)
+			}
+			depth--
+		default:
+			if depth == 0 {
+				builder.WriteRune(char)
 			}
 		}
-		if depth != 0 {
-			return strings.TrimSpace(value)
-		}
-		return strings.TrimSpace(builder.String())
 	}
+	if depth != 0 {
+		return strings.TrimSpace(value)
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func TestStripBalancedGenericArgumentsParity(t *testing.T) {
 	cases := []string{
 		"", "Name", " package.Service.handle ", "a.b_C42", "NUL\x00name",
 		"Niño.方法", " Map<String, List<T>>.get ", "Unclosed<", "TooMany>",
 		"Trailing<Inner<T>", "A<>.b", string([]byte{'a', 0xff, 'b'}),
 	}
+	for _, length := range []int{128, 4096} {
+		prefix := strings.Repeat("a", length)
+		cases = append(cases, prefix, prefix+"<T>", prefix+"é", prefix+string([]byte{0xff}))
+	}
 	for index, input := range cases {
-		if got, want := stripBalancedGenericArguments(input), legacy(input); got != want {
+		if got, want := stripBalancedGenericArguments(input), legacyStripBalancedGenericArguments(input); got != want {
 			t.Fatalf("generic spelling case %d: got %q, want %q", index, got, want)
 		}
 	}

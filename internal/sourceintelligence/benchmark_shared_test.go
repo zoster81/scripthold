@@ -34,6 +34,44 @@ func BenchmarkProjectGenericNameNormalization(b *testing.B) {
 	}
 }
 
+// BenchmarkProjectGenericLongPrefixFallback compares the current ASCII guard
+// with the previous rune loop on long names whose special byte is near the end.
+func BenchmarkProjectGenericLongPrefixFallback(b *testing.B) {
+	for _, length := range []int{128, 4096} {
+		prefix := strings.Repeat("a", length)
+		for _, item := range []struct {
+			name, input string
+		}{
+			{name: "plain-ascii", input: prefix},
+			{name: "late-generic", input: prefix + "<T>"},
+			{name: "late-unicode", input: prefix + "é"},
+			{name: "late-invalid-utf8", input: prefix + string([]byte{0xff})},
+		} {
+			want := legacyStripBalancedGenericArguments(item.input)
+			if got := stripBalancedGenericArguments(item.input); got != want {
+				b.Fatalf("long %s/%d mismatch: got %q, want %q", item.name, length, got, want)
+			}
+			for _, implementation := range []struct {
+				name string
+				fn   func(string) string
+			}{
+				{name: "current", fn: stripBalancedGenericArguments},
+				{name: "legacy", fn: legacyStripBalancedGenericArguments},
+			} {
+				b.Run(fmt.Sprintf("%d/%s/%s", length, item.name, implementation.name), func(b *testing.B) {
+					b.ReportAllocs()
+					b.ResetTimer()
+					for iteration := 0; iteration < b.N; iteration++ {
+						if result := implementation.fn(item.input); result != want {
+							b.Fatalf("unexpected normalized spelling")
+						}
+					}
+				})
+			}
+		}
+	}
+}
+
 var cppRawStringStartBenchmarkSink int
 
 func BenchmarkScannerDelimiterValidation(b *testing.B) {
