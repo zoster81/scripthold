@@ -90,6 +90,12 @@ func (model *ProjectModel) PlanContext(ctx context.Context, targets []ProjectSel
 		return ProjectContextPlan{}, operation.New(operation.KindInvalidInput, "unknown project context body policy")
 	}
 
+	if len(targets) == 1 {
+		if plan, eligible, err := model.planFlatPathContext(ctx, targets[0], options); eligible {
+			return plan, err
+		}
+	}
+
 	seeds := make([]projectContextSeed, 0, len(targets))
 	pathTargets := make([]string, 0, len(targets))
 	for _, selector := range targets {
@@ -135,6 +141,64 @@ func (model *ProjectModel) PlanContext(ctx context.Context, targets []ProjectSel
 		return ProjectContextPlan{}, err
 	}
 	return planner.plan, nil
+}
+
+// planFlatPathContext avoids copying full symbol records when an oversized,
+// single-file context has no parents, structural references or dependencies.
+// All other requests continue through the general context planner.
+func (model *ProjectModel) planFlatPathContext(ctx context.Context, selector ProjectSelector, options ProjectContextOptions) (ProjectContextPlan, bool, error) {
+	if selector.Kind != ProjectSelectorPath || options.MaxItems > 64 {
+		return ProjectContextPlan{}, false, nil
+	}
+	pathKey := projectPathKey(selector.Path)
+	file, exists := model.files[pathKey]
+	if !exists || selector.Path == "" || selector.SourceFingerprint != file.facts.SourceFingerprint {
+		return ProjectContextPlan{}, false, nil
+	}
+	records := model.symbolsByFile[pathKey]
+	if len(records) <= options.MaxItems*4 ||
+		len(model.references) != 0 || len(model.referencesByTarget) != 0 ||
+		len(model.referencesByTargetIndices) != 0 ||
+		len(model.dependenciesBySource[pathKey]) != 0 ||
+		len(model.dependentsByTarget[pathKey]) != 0 {
+		return ProjectContextPlan{}, false, nil
+	}
+	// The general root selector filters nested records and re-sorts records
+	// that are not strictly ordered. Neither case is safe for this shortcut.
+	for i := range records {
+		if records[i].pathKey != pathKey || records[i].symbol.ParentID != "" ||
+			(i > 0 && !projectSymbolRecordLess(records[i-1], records[i])) {
+			return ProjectContextPlan{}, false, nil
+		}
+	}
+	indices := make([]int, len(records))
+	for i := range indices {
+		indices[i] = i
+	}
+	sort.Slice(indices, func(i, j int) bool {
+		left, right := records[indices[i]], records[indices[j]]
+		if left.symbol.declarationOffsets.Start != right.symbol.declarationOffsets.Start {
+			return left.symbol.declarationOffsets.Start < right.symbol.declarationOffsets.Start
+		}
+		return left.symbol.ID < right.symbol.ID
+	})
+	planner := projectContextPlanner{
+		model: model, options: options,
+		plan: ProjectContextPlan{Candidates: make([]ProjectContextCandidate, 0, min(options.MaxItems, len(records)+8))},
+		seen: make(map[projectContextKey]struct{}),
+	}
+	for _, index := range indices {
+		record := records[index]
+		if err := planner.add(record, ContextTarget, 1, record.symbol.Evidence, ResolutionResolved, false); err != nil {
+			return ProjectContextPlan{}, true, err
+		}
+	}
+	// In the general route, deeper dependency traversal checks cancellation
+	// after every seed has been offered to the bounded planner.
+	if err := ctx.Err(); err != nil {
+		return ProjectContextPlan{}, true, operation.Wrap(operation.KindCancelled, "plan_project_context", file.facts.Path, err)
+	}
+	return planner.plan, true, nil
 }
 
 // appendContextSeedsForSelector writes path roots directly into the request's

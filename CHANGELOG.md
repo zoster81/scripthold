@@ -12,6 +12,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Changed
 
+- Large single-file `source_query.context` plans with flat declarations and no structural dependencies use a bounded compact-index path, avoiding full-record seed copies while preserving response ordering, budgets, and truncation. Other plans retain the general algorithm.
 - Context seed sorting now reads immutable declaration offsets directly instead of cloning unused signature/body offset ranges for each comparison, retaining path, declaration-position, and symbol-ID ordering while reducing allocations.
 - Path-selected `source_query.context` now appends immutable model root declarations directly into the request-owned seed buffer, avoiding an additional large intermediate copy while preserving selector fingerprints, ordering, cancellation, and public context results.
 - `source_query.context` skips temporary relation-graph sorting and indexing when a project contains no structural reference edges. Reverse import dependents and cancellation still use the established bounded plan, with unchanged public context results and source-fingerprint checks.

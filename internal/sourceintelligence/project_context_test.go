@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/zoster81/scripthold/internal/operation"
@@ -557,6 +558,83 @@ func TestProjectContextAppendSelectorSeedsReusesRequestBuffer(t *testing.T) {
 	}
 	if len(appended) != len(original)+1 {
 		t.Fatal("failed selector changed caller-owned seed count")
+	}
+}
+
+// The compact flat-file planner must agree byte-for-byte with the general
+// planner, including item/byte limits, ordering and truncation.
+func TestProjectContextFlatPathCompactPlanMatchesGeneral(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source strings.Builder
+	for index := 0; index < 128; index++ {
+		fmt.Fprintf(&source, "export class Flat%04d {}\n", index)
+	}
+	facts := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join("project", "context", "compact-flat.ts"), source.String())
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := queryPathSelector(facts)
+	// The otherwise unused target index selects the existing general route
+	// without changing any actual reference or dependency result.
+	baseline := *model
+	baseline.referencesByTargetIndices = map[string][]int{"unused-ref": nil}
+	for _, maxItems := range []int{1, 8, 16} {
+		for _, budget := range []int{64, 4096, 1 << 20} {
+			options := ProjectContextOptions{MaxItems: maxItems, MaxDepth: 2, BudgetBytes: budget, BodyPolicy: ProjectContextSignaturesOnly}
+			want, err := baseline.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+			if err != nil {
+				t.Fatalf("baseline items=%d budget=%d: %v", maxItems, budget, err)
+			}
+			got, err := model.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+			if err != nil || !reflect.DeepEqual(got, want) {
+				t.Fatalf("compact plan changed items=%d budget=%d: got=%+v want=%+v err=%v", maxItems, budget, got, want, err)
+			}
+			fast, eligible, err := model.planFlatPathContext(context.Background(), selector, options)
+			if !eligible || err != nil || !reflect.DeepEqual(fast, want) {
+				t.Fatalf("eligible compact plan mismatched items=%d budget=%d: eligible=%t err=%v", maxItems, budget, eligible, err)
+			}
+		}
+	}
+	options := ProjectContextOptions{MaxItems: 8, MaxDepth: 2, BudgetBytes: 4096, BodyPolicy: ProjectContextSignaturesOnly}
+	for name, mutate := range map[string]func(*ProjectModel){
+		"structural-index": func(copy *ProjectModel) {
+			copy.referencesByTargetIndices = map[string][]int{"other": nil}
+		},
+		"outgoing-dependency": func(copy *ProjectModel) {
+			copy.dependenciesBySource = map[string][]ProjectDependency{projectPathKey(facts.Path): {{}}}
+		},
+		"incoming-dependency": func(copy *ProjectModel) {
+			copy.dependentsByTarget = map[string][]ProjectDependency{projectPathKey(facts.Path): {{}}}
+		},
+		"nested-record": func(copy *ProjectModel) {
+			records := append([]projectSymbolRecord(nil), model.symbolsByFile[projectPathKey(facts.Path)]...)
+			records[0].symbol.ParentID = "unknown-parent"
+			copy.symbolsByFile = map[string][]projectSymbolRecord{projectPathKey(facts.Path): records}
+		},
+		"equal-sort-keys": func(copy *ProjectModel) {
+			records := append([]projectSymbolRecord(nil), model.symbolsByFile[projectPathKey(facts.Path)]...)
+			records[1].entity.QualifiedName = records[0].entity.QualifiedName
+			records[1].entity.SymbolID = records[0].entity.SymbolID
+			copy.symbolsByFile = map[string][]projectSymbolRecord{projectPathKey(facts.Path): records}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			copy := *model
+			mutate(&copy)
+			if _, eligible, err := copy.planFlatPathContext(context.Background(), selector, options); eligible || err != nil {
+				t.Fatalf("unsafe fast path accepted model: eligible=%t err=%v", eligible, err)
+			}
+		})
+	}
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = model.PlanContext(canceled, []ProjectSelector{selector}, options)
+	if operation.KindOf(err) != operation.KindCancelled {
+		t.Fatalf("canceled compact plan error=%v", err)
 	}
 }
 
