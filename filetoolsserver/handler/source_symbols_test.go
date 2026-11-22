@@ -91,6 +91,13 @@ func TestEnforceSourceOutputBudgetExactJSONBoundaries(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			direct, directErr := tc.output.MarshalJSON()
+			if directErr != nil {
+				t.Fatalf("direct legacy JSON: %v", directErr)
+			}
+			if string(direct) != string(encoded) {
+				t.Fatalf("direct legacy JSON changed wire response: length=%d, encoded=%d", len(direct), len(encoded))
+			}
 			for _, maximum := range []int64{0, 1, int64(len(encoded)) - 1, int64(len(encoded)), int64(len(encoded)) + 1} {
 				err := enforceSourceOutputBudget(tc.output, maximum)
 				if maximum < int64(len(encoded)) {

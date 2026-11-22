@@ -749,9 +749,24 @@ func (counter *sourceOutputJSONByteCounter) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
-// sourceEncodedJSONBytes measures the same JSON output size as json.Marshal,
-// without retaining the temporary encoded result. Encoder adds one newline.
+// sourceEncodedJSONBytes measures the same JSON output size as json.Marshal.
+// Known source outputs already serialize themselves through the legacy JSON
+// marshaler, so avoid encoding their JSON a second time merely to count it.
+// Keep the generic encoder as the fallback for other value types.
 func sourceEncodedJSONBytes(value any) (int64, error) {
+	switch value.(type) {
+	case SourceSymbolsOutput, SourceQueryOutput:
+		encoded, err := value.(json.Marshaler).MarshalJSON()
+		if err != nil {
+			return 0, err
+		}
+		// Both concrete MarshalJSON implementations delegate to json.Marshal,
+		// which has already validated and escaped their complete projections.
+		if len(encoded) == 0 {
+			return 0, operation.New(operation.KindUnknown, "source output encoder returned no data")
+		}
+		return int64(len(encoded)), nil
+	}
 	var counter sourceOutputJSONByteCounter
 	if err := json.NewEncoder(&counter).Encode(value); err != nil {
 		return 0, err

@@ -46,6 +46,7 @@ func TestSourceQueryOutputBudgetMatchesExactJSONLength(t *testing.T) {
 		{name: "concise-context", output: SourceQueryOutput{
 			Operation: "context", Presentation: "concise", Context: contextResult,
 		}},
+		{name: "invalid-utf8-escapes", output: SourceQueryOutput{Operation: "search", Search: &SourceSearchResult{Matches: []SourceSearchMatch{{Path: "src/<&>.go", Name: "broken\xff\u2028😀", QualifiedName: "symbol<&>", Kind: sourceintelligence.SymbolKindFunction}}}}},
 		{name: "empty", output: SourceQueryOutput{}},
 	}
 	for _, tc := range cases {
@@ -53,6 +54,13 @@ func TestSourceQueryOutputBudgetMatchesExactJSONLength(t *testing.T) {
 			encoded, err := json.Marshal(tc.output)
 			if err != nil {
 				t.Fatal(err)
+			}
+			direct, directErr := tc.output.MarshalJSON()
+			if directErr != nil {
+				t.Fatalf("direct legacy JSON: %v", directErr)
+			}
+			if string(direct) != string(encoded) {
+				t.Fatalf("direct legacy JSON changed wire response: length=%d, encoded=%d", len(direct), len(encoded))
 			}
 			for _, maximum := range []int64{0, 1, int64(len(encoded)) - 1, int64(len(encoded)), int64(len(encoded)) + 1} {
 				got := enforceSourceQueryOutputBudget(tc.output, maximum)

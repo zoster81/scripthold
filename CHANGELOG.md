@@ -11,6 +11,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Changed
 
+- Source Symbols and Source Query response-size checks now use their existing legacy JSON serializers directly instead of passing the same JSON through a second encoder. This reduces response processing time on large outputs while preserving exact byte limits, Unicode escaping, error handling, and public JSON. Other value types retain the existing counting encoder.
 - Concise `source_symbols` digest and outline now retain only the parent facts needed to establish top-level declarations. Owner-filtered concise outlines skip the unnecessary ancestry index entirely. Large source files use less temporary memory without changing owner selection, nested declarations, incomplete ancestry handling, truncation, or public responses.
 - Repeated `source_query` requests now reuse a single per-handler fingerprint of the immutable language registry and effective analysis limits. This avoids redundant hashing and temporary allocations; changing the registry or any fact-affecting limit triggers recalculation. Source-content fingerprint checks, index generations, stale bindings, limits and public responses are unchanged.
 - Refreshed pinned CI and publication tooling (Node.js 26.13.1, GoReleaser 2.20.3, golangci-lint 2.15.0, govulncheck 1.10.0, and MCP Registry publisher 1.8.11) and updated indirect Go module dependencies. Immutable Action digests and release-tool integrity checks remain enforced; this development-only update does not publish or install a new server.
