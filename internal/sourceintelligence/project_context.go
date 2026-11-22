@@ -336,6 +336,17 @@ func (planner *projectContextPlanner) addDirectDependencies(ctx context.Context,
 }
 
 func (planner *projectContextPlanner) addReverseAndTypeRelations(ctx context.Context, seeds []projectContextSeed, pathTargets []string) error {
+	if len(planner.model.references) == 0 && len(planner.model.referencesByTarget) == 0 &&
+		len(planner.model.referencesByTargetIndices) == 0 {
+		// No structural edge can contribute either direction. Retain reverse
+		// dependency context without allocating or sorting the seed graph.
+		if len(seeds) > 0 {
+			if err := ctx.Err(); err != nil {
+				return operation.Wrap(operation.KindCancelled, "plan_project_context", seeds[0].record.entity.Path, err)
+			}
+		}
+		return planner.addReverseDependents(pathTargets)
+	}
 	records := make([]projectSymbolRecord, 0, len(seeds)*2)
 	for _, seed := range seeds {
 		records = append(records, seed.record)
@@ -414,6 +425,10 @@ func (planner *projectContextPlanner) addReverseAndTypeRelations(ctx context.Con
 			return err
 		}
 	}
+	return planner.addReverseDependents(pathTargets)
+}
+
+func (planner *projectContextPlanner) addReverseDependents(pathTargets []string) error {
 	for _, pathKey := range pathTargets {
 		for _, dependency := range planner.model.dependentsByTarget[pathKey] {
 			for _, record := range planner.contextRootSymbols(projectPathKey(dependency.Source.Path)) {

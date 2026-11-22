@@ -460,6 +460,66 @@ func TestProjectContextModelBorrowsSortedFlatRoots(t *testing.T) {
 	}
 }
 
+// A reference-free plan must not allocate a per-seed relation graph merely
+// to determine that there are no outgoing or reverse type relations.
+func TestProjectContextNoReferencesAvoidsGraphScratch(t *testing.T) {
+	seeds := make([]projectContextSeed, 128)
+	for index := range seeds {
+		id := fmt.Sprintf("sym-%03d", index)
+		seeds[index] = projectContextSeed{record: projectSymbolRecord{
+			symbol:  NormalizedSymbol{ID: id},
+			entity:  RelationEntity{Path: "flat.ts", SymbolID: id},
+			pathKey: "flat",
+		}}
+	}
+	planner := projectContextPlanner{model: &ProjectModel{}}
+	ctx := context.Background()
+	allocations := testing.AllocsPerRun(30, func() {
+		if err := planner.addReverseAndTypeRelations(ctx, seeds, nil); err != nil {
+			panic(err)
+		}
+	})
+	if allocations != 0 {
+		t.Fatalf("reference-free reverse planning used %.0f unnecessary heap allocations", allocations)
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := planner.addReverseAndTypeRelations(cancelled, seeds, nil); operation.KindOf(err) != operation.KindCancelled {
+		t.Fatalf("cancelled empty-reference plan returned %v", err)
+	}
+}
+
+// Reverse import dependencies remain visible in path context even without
+// any structural reference edge in the project model.
+func TestProjectContextNoReferencesRetainsReverseDependents(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join("project", "context", "no-references")
+	base := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join(root, "base.ts"), "export class Base {}\n")
+	client := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join(root, "client.ts"),
+		"import { Base } from './base';\nexport class Client {}\n")
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{base, client}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(model.references) != 0 {
+		t.Fatalf("fixture must lack structural reference edges; got %d", len(model.references))
+	}
+	if len(model.dependentsByTarget[projectPathKey(base.Path)]) == 0 {
+		t.Fatal("fixture has no reverse dependency")
+	}
+	plan, err := model.PlanContext(context.Background(), []ProjectSelector{queryPathSelector(base)},
+		ProjectContextOptions{BudgetBytes: 8192, MaxItems: 16, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsContextSymbol(plan.Candidates, projectSymbolID(t, client, "Client")) {
+		t.Fatalf("reference-free reverse dependency lost client root: %+v", plan.Candidates)
+	}
+}
+
 func TestProjectContextRootSymbolsPreserveParentKindsAndFallback(t *testing.T) {
 	record := func(id, parent string, kind SymbolKind) projectSymbolRecord {
 		return projectSymbolRecord{
