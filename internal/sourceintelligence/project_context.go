@@ -96,11 +96,11 @@ func (model *ProjectModel) PlanContext(ctx context.Context, targets []ProjectSel
 		if err := ctx.Err(); err != nil {
 			return ProjectContextPlan{}, operation.Wrap(operation.KindCancelled, "plan_project_context", selector.Path, err)
 		}
-		resolved, err := model.contextSeedsForSelector(selector)
+		var err error
+		seeds, err = model.appendContextSeedsForSelector(seeds, selector)
 		if err != nil {
 			return ProjectContextPlan{}, err
 		}
-		seeds = append(seeds, resolved...)
 		if selector.Kind == ProjectSelectorPath {
 			pathTargets = append(pathTargets, projectPathKey(selector.Path))
 		}
@@ -137,7 +137,40 @@ func (model *ProjectModel) PlanContext(ctx context.Context, targets []ProjectSel
 	return planner.plan, nil
 }
 
+// appendContextSeedsForSelector writes path roots directly into the request's
+// seed slice, avoiding a second full copy of large immutable model records.
+func (model *ProjectModel) appendContextSeedsForSelector(seeds []projectContextSeed, selector ProjectSelector) ([]projectContextSeed, error) {
+	if selector.Kind != ProjectSelectorPath {
+		resolved, err := model.contextSeedsForSelector(selector)
+		if err != nil {
+			return nil, err
+		}
+		return append(seeds, resolved...), nil
+	}
+	pathKey := projectPathKey(selector.Path)
+	file, ok := model.files[pathKey]
+	if !ok || selector.Path == "" {
+		return nil, operation.Wrap(operation.KindNotFound, "resolve_project_context_selector", selector.Path, fmt.Errorf("project file was not found"))
+	}
+	if selector.SourceFingerprint != file.facts.SourceFingerprint {
+		return nil, operation.Wrap(operation.KindConflict, "resolve_project_context_selector", file.facts.Path, fmt.Errorf("source fingerprint is stale"))
+	}
+	records := model.contextRootSymbols(pathKey)
+	if cap(seeds)-len(seeds) < len(records) {
+		grown := make([]projectContextSeed, len(seeds), len(seeds)+len(records))
+		copy(grown, seeds)
+		seeds = grown
+	}
+	for _, record := range records {
+		seeds = append(seeds, projectContextSeed{record: record, evidence: record.symbol.Evidence, resolution: ResolutionResolved})
+	}
+	return seeds, nil
+}
+
 func (model *ProjectModel) contextSeedsForSelector(selector ProjectSelector) ([]projectContextSeed, error) {
+	if selector.Kind == ProjectSelectorPath {
+		return model.appendContextSeedsForSelector(nil, selector)
+	}
 	pathKey := projectPathKey(selector.Path)
 	file, ok := model.files[pathKey]
 	if !ok || selector.Path == "" {
@@ -148,13 +181,6 @@ func (model *ProjectModel) contextSeedsForSelector(selector ProjectSelector) ([]
 	}
 
 	switch selector.Kind {
-	case ProjectSelectorPath:
-		records := model.contextRootSymbols(pathKey)
-		seeds := make([]projectContextSeed, 0, len(records))
-		for _, record := range records {
-			seeds = append(seeds, projectContextSeed{record: record, evidence: record.symbol.Evidence, resolution: ResolutionResolved})
-		}
-		return seeds, nil
 	case ProjectSelectorSymbol:
 		record, ok := model.contextSymbolByID(pathKey, selector.SymbolID)
 		if !ok {

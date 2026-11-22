@@ -520,6 +520,46 @@ func TestProjectContextNoReferencesRetainsReverseDependents(t *testing.T) {
 	}
 }
 
+// Mixed selectors append to the request-owned buffer without replacing prior
+// seeds or weakening path fingerprint validation.
+func TestProjectContextAppendSelectorSeedsReusesRequestBuffer(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join("project", "context", "append-seeds.ts"),
+		"export class Alpha {}\nexport class Beta {}\n")
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := queryPathSelector(facts)
+	original, err := model.contextSeedsForSelector(selector)
+	if err != nil || len(original) < 2 {
+		t.Fatalf("path seed fixture invalid: %d seeds, error=%v", len(original), err)
+	}
+	buffer := make([]projectContextSeed, 1, len(original)+2)
+	buffer[0].record.symbol.ID = "preserved"
+	appended, err := model.appendContextSeedsForSelector(buffer, selector)
+	if err != nil || len(appended) != len(original)+1 {
+		t.Fatalf("appended path seeds changed: count=%d err=%v", len(appended), err)
+	}
+	if &appended[0] != &buffer[0] || appended[0].record.symbol.ID != "preserved" {
+		t.Fatal("path append did not retain request-owned seed buffer and prefix")
+	}
+	if !reflect.DeepEqual(appended[1:], original) {
+		t.Fatal("path append altered selector seed order or values")
+	}
+	stale := selector
+	stale.SourceFingerprint = selector.SourceFingerprint + "-stale"
+	if _, err := model.appendContextSeedsForSelector(appended, stale); operation.KindOf(err) != operation.KindConflict {
+		t.Fatalf("stale path fingerprint must fail, got %v", err)
+	}
+	if len(appended) != len(original)+1 {
+		t.Fatal("failed selector changed caller-owned seed count")
+	}
+}
+
 func TestProjectContextRootSymbolsPreserveParentKindsAndFallback(t *testing.T) {
 	record := func(id, parent string, kind SymbolKind) projectSymbolRecord {
 		return projectSymbolRecord{

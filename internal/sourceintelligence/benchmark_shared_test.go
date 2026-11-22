@@ -606,6 +606,16 @@ func BenchmarkProjectContextFlatPath(b *testing.B) {
 		}
 		selector := ProjectSelector{Kind: ProjectSelectorPath, Path: document.Path, SourceFingerprint: document.SourceFingerprint}
 		options := ProjectContextOptions{BudgetBytes: 1 << 20, MaxItems: 16, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+		b.Run(fmt.Sprintf("symbols-%d/selector-seeds", count), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				seeds, err := model.contextSeedsForSelector(selector)
+				if err != nil || len(seeds) != len(records) {
+					b.Fatalf("path seed selection changed: seeds=%d err=%v", len(seeds), err)
+				}
+			}
+		})
 		b.Run(fmt.Sprintf("symbols-%d/roots", count), func(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
