@@ -83,14 +83,14 @@ jobs:
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           distribution: goreleaser
-          version: 'v2.18.1'
+          version: 'v2.20.3'
           workdir: source
           args: release --clean --skip=publish,announce
 
       - name: Set up pinned Node for independent output checks
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '26.11.1'
+          node-version: '26.13.1'
           package-manager-cache: false
 
       - name: Check all 13 original assets and their checksum closure

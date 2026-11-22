@@ -29,7 +29,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '26.11.1'
+          node-version: '26.13.1'
           package-manager-cache: false
 
       - name: Verify tag metadata and exact main commit
@@ -137,7 +137,7 @@ jobs:
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           distribution: goreleaser
-          version: 'v2.18.1'
+          version: 'v2.20.3'
           args: release --clean --skip=publish,announce
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -145,7 +145,7 @@ jobs:
       - name: Set up Node.js for provenance validation
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '26.11.1'
+          node-version: '26.13.1'
           package-manager-cache: false
 
       - name: Generate signed release provenance
@@ -596,7 +596,7 @@ jobs:
       - name: Set up pinned Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '26.11.1'
+          node-version: '26.13.1'
           package-manager-cache: false
 
       - name: Verify exact producer jobs and all twenty-two downloaded original bytes
@@ -660,7 +660,7 @@ jobs:
       - name: Set up pinned Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '26.11.1'
+          node-version: '26.13.1'
           package-manager-cache: false
 
       - name: Verify exact producer jobs and all twenty-two downloaded original bytes
