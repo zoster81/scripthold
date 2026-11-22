@@ -676,7 +676,7 @@ func BenchmarkProjectContextMultiPathGrowth(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	for _, fileCount := range []int{8, 16} {
+	for _, fileCount := range []int{2, 4, 8, 16} {
 		facts := make([]ProjectFileFacts, 0, fileCount)
 		selectors := make([]ProjectSelector, 0, fileCount)
 		for fileIndex := 0; fileIndex < fileCount; fileIndex++ {
@@ -704,6 +704,22 @@ func BenchmarkProjectContextMultiPathGrowth(b *testing.B) {
 				plan, err := model.PlanContext(context.Background(), selectors, options)
 				if err != nil || len(plan.Candidates) != options.MaxItems || !plan.Truncated {
 					b.Fatalf("multipath context changed: candidates=%d truncated=%t err=%v", len(plan.Candidates), plan.Truncated, err)
+				}
+			}
+		})
+		// A nonempty reference index forces the unchanged general planner
+		// without changing flat source facts or selected paths. The sentinel
+		// also exercises reference-path bookkeeping, so this is a fallback
+		// control rather than a no-index before/after latency baseline.
+		general := *model
+		general.referencesByTargetIndices = map[string][]int{"benchmark-general-route": nil}
+		b.Run(fmt.Sprintf("files-%d/plan-context-general", fileCount), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				plan, err := general.PlanContext(context.Background(), selectors, options)
+				if err != nil || len(plan.Candidates) != options.MaxItems || !plan.Truncated {
+					b.Fatalf("general multipath context changed: candidates=%d truncated=%t err=%v", len(plan.Candidates), plan.Truncated, err)
 				}
 			}
 		})

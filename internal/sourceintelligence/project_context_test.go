@@ -987,7 +987,7 @@ func TestProjectContextFlatMultiPathMatchesGeneral(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, fileCount := range []int{8, 16} {
+	for _, fileCount := range []int{2, 4, 8, 16} {
 		t.Run(fmt.Sprintf("files-%d", fileCount), func(t *testing.T) {
 			facts := make([]ProjectFileFacts, 0, fileCount)
 			selectors := make([]ProjectSelector, 0, fileCount)
