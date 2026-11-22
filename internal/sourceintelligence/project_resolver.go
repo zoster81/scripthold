@@ -272,7 +272,7 @@ func (model *ProjectModel) buildSymbolTables(ctx context.Context, descriptors *p
 			}
 			entity := relationEntityForSymbol(symbol, file.facts.SourceFingerprint)
 			records = append(records, projectSymbolRecord{
-				symbol: symbol, entity: entity, pathKey: pathKey, languageID: descriptor.ID,
+				symbol: cloneNormalizedSymbol(symbol), entity: entity, pathKey: pathKey, languageID: descriptor.ID,
 				qualifiedKey: projectSymbolLookupKey(descriptor, symbol.QualifiedName),
 				nameKey:      projectSymbolLookupKey(descriptor, symbol.Name),
 			})

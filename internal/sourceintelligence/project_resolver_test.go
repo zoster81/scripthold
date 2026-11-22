@@ -14,6 +14,69 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
+// BuildProjectModel publishes an immutable model even when the caller later
+// mutates the fact slice and the nested values it supplied.
+func TestBuildProjectModelRetainsInputSymbolOwnership(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join("project", "ownership", "Service.java")
+	facts := projectResolverFacts(t, JavaAnalyzer{}, path, "package demo; public class Service { public void Run() {} }\n")
+	if len(facts.Analysis.Analysis.Symbols) == 0 {
+		t.Fatal("fixture has no symbols")
+	}
+	inputSymbol := &facts.Analysis.Analysis.Symbols[0]
+	inputSymbol.Modifiers = []string{"original"}
+	signature := inputSymbol.DeclarationRange
+	body := inputSymbol.DeclarationRange
+	inputSymbol.SignatureRange = &signature
+	inputSymbol.BodyRange = &body
+	originalName := inputSymbol.Name
+	originalQualified := inputSymbol.QualifiedName
+	originalID := inputSymbol.ID
+
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := model.symbolsByFile[projectPathKey(path)]
+	var retained *projectSymbolRecord
+	for index := range records {
+		if records[index].symbol.ID == originalID {
+			retained = &records[index]
+			break
+		}
+	}
+	if retained == nil {
+		t.Fatal("model lost original symbol")
+	}
+	beforeSignature := *retained.symbol.SignatureRange
+	beforeBody := *retained.symbol.BodyRange
+
+	inputSymbol.Name = "Changed"
+	inputSymbol.QualifiedName = "Changed.Qualified"
+	inputSymbol.Modifiers[0] = "changed"
+	inputSymbol.SignatureRange.Start.Line = 999
+	inputSymbol.BodyRange.Start.Line = 998
+	facts.Analysis.Analysis.Symbols[0] = NormalizedSymbol{}
+
+	if retained.symbol.Name != originalName || retained.symbol.QualifiedName != originalQualified ||
+		len(retained.symbol.Modifiers) != 1 || retained.symbol.Modifiers[0] != "original" ||
+		*retained.symbol.SignatureRange != beforeSignature || *retained.symbol.BodyRange != beforeBody {
+		t.Fatalf("caller mutation changed model symbol: %+v", retained.symbol)
+	}
+	result, err := model.StructuralSearch(context.Background(), ProjectSearchOptions{
+		Query: originalName, Match: ProjectSearchExact, MaxResults: 8,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Matches) == 0 {
+		t.Fatal("caller mutation changed structural search results")
+	}
+}
+
 // Quoted and angle-bracket C/C++ includes have different search rules. With no
 // compiler include roots, a sibling file may satisfy "local.h", but cannot be
 // asserted as the target of <local.h> merely because its basename matches.

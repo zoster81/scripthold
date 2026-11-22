@@ -6,6 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Project source-query models now make an independent copy of each retained symbol's mutable modifiers and optional source ranges. Changes to caller-owned analysis facts after model construction can no longer alter those symbol records; public search results, indexes, and source-fingerprint checks remain unchanged.
 - `source_query.context` now bounds ancestry traversal when normalized source facts contain self-referential or cyclic parent IDs. Malformed ownership can no longer make context planning loop indefinitely; ordinary hierarchies, deterministic results, output budgets, and cancellation remain unchanged.
 - Durable task stores can now reopen after `MCP_TASK_MAX_CONCURRENCY` changes between coordinated process restarts (for example, 4 to 8 or 12, then back to 4). Worker concurrency is a validated startup setting; existing descriptor bytes, stored task identities, and durable queue/log/runtime/retention policy remain unchanged. Running workers are not reconfigured live, and published 4.1.0 does not include this change.
 
