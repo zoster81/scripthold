@@ -339,6 +339,40 @@ func hasContextCandidate(values []ProjectContextCandidate, path string, reason C
 	return false
 }
 
+// A planner may borrow already-sorted, immutable model records when every
+// symbol is a root. Nested symbols still require a separately filtered slice.
+func TestProjectContextPlannerBorrowsFlatImmutableRootSymbols(t *testing.T) {
+	flat := make([]projectSymbolRecord, 2, 4)
+	flat[0] = projectSymbolRecord{symbol: NormalizedSymbol{ID: "a", Kind: SymbolKindClass}}
+	flat[1] = projectSymbolRecord{symbol: NormalizedSymbol{ID: "b", Kind: SymbolKindClass}}
+	nested := []projectSymbolRecord{
+		{symbol: NormalizedSymbol{ID: "root", Kind: SymbolKindModule}},
+		{symbol: NormalizedSymbol{ID: "child", ParentID: "root", Kind: SymbolKindClass}},
+	}
+	model := &ProjectModel{symbolsByFile: map[string][]projectSymbolRecord{
+		"flat": flat, "nested": nested,
+	}}
+	planner := projectContextPlanner{model: model}
+	borrowed := planner.contextRootSymbols("flat")
+	if len(borrowed) != len(flat) || &borrowed[0] != &flat[0] {
+		t.Fatal("flat root records were copied instead of borrowing the immutable model slice")
+	}
+	if cap(borrowed) != len(borrowed) {
+		t.Fatalf("borrowed root capacity = %d, want %d to prevent append into model storage", cap(borrowed), len(borrowed))
+	}
+	_ = append(borrowed, projectSymbolRecord{symbol: NormalizedSymbol{ID: "extra"}})
+	if flat[:cap(flat)][len(flat)].symbol.ID != "" {
+		t.Fatal("appending to borrowed roots modified the model backing storage")
+	}
+	if repeated := planner.contextRootSymbols("flat"); &repeated[0] != &flat[0] {
+		t.Fatal("cached flat roots did not preserve the model-owned backing array")
+	}
+	filtered := planner.contextRootSymbols("nested")
+	if len(filtered) != 2 || &filtered[0] == &nested[0] {
+		t.Fatal("nested roots unexpectedly borrowed unfiltered model storage")
+	}
+}
+
 func TestProjectContextRootSymbolsPreserveParentKindsAndFallback(t *testing.T) {
 	record := func(id, parent string, kind SymbolKind) projectSymbolRecord {
 		return projectSymbolRecord{

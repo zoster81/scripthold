@@ -528,7 +528,24 @@ func (planner *projectContextPlanner) contextRootSymbols(pathKey string) []proje
 	if records, ok := planner.roots[pathKey]; ok {
 		return records
 	}
-	records := planner.model.contextRootSymbols(pathKey)
+	// Model records are sorted and immutable after construction. Borrow them
+	// only when filtering cannot change the root set; planner callers read
+	// these records without modifying the retained model backing array.
+	records := planner.model.symbolsByFile[pathKey]
+	flat := len(records) > 0
+	for _, record := range records {
+		if record.symbol.ParentID != "" {
+			flat = false
+			break
+		}
+	}
+	if flat {
+		// Do not let an append through this borrowed view write into spare
+		// capacity of the model's immutable backing array.
+		records = records[:len(records):len(records)]
+	} else {
+		records = planner.model.contextRootSymbols(pathKey)
+	}
 	if planner.roots == nil {
 		planner.roots = make(map[string][]projectSymbolRecord)
 	}
