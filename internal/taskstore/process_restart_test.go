@@ -163,21 +163,31 @@ func finishRestartTestProcess(t *testing.T, cmd *exec.Cmd) {
 	}
 }
 
-func waitRestartTestLock(t *testing.T, lockPath string) {
+// waitRestartTestLock waits for the child to hold the real OS lock. Under
+// race-instrumented parallel package tests, Windows process startup can exceed
+// the ordinary five-second test handshake, even when the lock is healthy.
+func waitRestartTestLock(t *testing.T, child *exec.Cmd, lockPath string) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(20 * time.Second)
 	for time.Now().Before(deadline) {
 		lock, err := tryAcquireWorkerLock(lockPath)
 		if err != nil {
 			if !strings.Contains(err.Error(), "already running") {
 				t.Fatalf("unexpected worker lock error: %v", err)
 			}
-			return // A different process holds the exclusive lock.
+			return // The child or another process holds the exclusive lock.
 		}
 		_ = lock.close()
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("helper never acquired exclusive lock %q", filepath.Base(lockPath))
+	// Reap the child before failing so an unresponsive helper cannot retain
+	// test-directory handles and hide the original readiness failure.
+	if child.Process != nil {
+		_ = child.Process.Kill()
+	}
+	waitErr := child.Wait()
+	t.Fatalf("helper never acquired exclusive lock %q: process=%v, stderr=%q",
+		filepath.Base(lockPath), waitErr, child.Stderr.(*bytes.Buffer).String())
 }
 
 func TestConcurrencyRestartAcrossWorkerSupervisorAndActiveExecutorProcesses(t *testing.T) {
@@ -241,11 +251,11 @@ func TestConcurrencyRestartAcrossWorkerSupervisorAndActiveExecutorProcesses(t *t
 	for _, concurrency := range []int{8, 12, 1, 4} {
 		stopWorker := filepath.Join(base, fmt.Sprintf("worker-stop-%d", concurrency))
 		worker := startRestartTestProcess(t, "worker", store.root, public, strconv.Itoa(concurrency), stopWorker)
-		waitRestartTestLock(t, filepath.Join(store.root, "worker.lock"))
+		waitRestartTestLock(t, worker, filepath.Join(store.root, "worker.lock"))
 
 		stopSupervisor := filepath.Join(base, fmt.Sprintf("supervisor-stop-%d", concurrency))
 		supervisor := startRestartTestProcess(t, "supervisor", store.root, public, strconv.Itoa(concurrency), stopSupervisor)
-		waitRestartTestLock(t, filepath.Join(store.root, "supervisor.lock"))
+		waitRestartTestLock(t, supervisor, filepath.Join(store.root, "supervisor.lock"))
 
 		frontend := startRestartTestProcess(t, "frontend", store.root, public, strconv.Itoa(concurrency), live[0].id, live[1].id)
 		finishRestartTestProcess(t, frontend)
