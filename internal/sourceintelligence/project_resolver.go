@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/zoster81/scripthold/internal/operation"
@@ -1194,17 +1195,25 @@ func validProjectFingerprint(value string) bool {
 
 func deterministicProjectReferenceID(reference ProjectReference) string {
 	hash := sha256.New()
-	parts := []string{
+	parts := [...]string{
 		reference.Source.Path, reference.Source.Language, reference.Source.SymbolID, reference.Source.QualifiedName,
 		reference.StructuralKind, reference.TargetSpelling,
-		fmt.Sprintf("%d", reference.Range.Start.Line), fmt.Sprintf("%d", reference.Range.Start.Column),
-		fmt.Sprintf("%d", reference.Range.End.Line), fmt.Sprintf("%d", reference.Range.End.Column),
 	}
 	var length [8]byte
 	for _, part := range parts {
 		binary.BigEndian.PutUint64(length[:], uint64(len(part)))
 		_, _ = hash.Write(length[:])
 		_, _ = hash.Write([]byte(part))
+	}
+	var decimal [20]byte
+	for _, value := range [...]int{
+		reference.Range.Start.Line, reference.Range.Start.Column,
+		reference.Range.End.Line, reference.Range.End.Column,
+	} {
+		digits := strconv.AppendInt(decimal[:0], int64(value), 10)
+		binary.BigEndian.PutUint64(length[:], uint64(len(digits)))
+		_, _ = hash.Write(length[:])
+		_, _ = hash.Write(digits)
 	}
 	return hex.EncodeToString(hash.Sum(nil))
 }

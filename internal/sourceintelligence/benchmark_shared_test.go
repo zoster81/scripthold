@@ -1153,6 +1153,40 @@ func BenchmarkSharedProjectQueryAndContext(b *testing.B) {
 	})
 }
 
+// BenchmarkDeterministicProjectReferenceID measures stable reference identity
+// hashing independently from project model construction and index refresh.
+func BenchmarkDeterministicProjectReferenceID(b *testing.B) {
+	for _, item := range []struct {
+		name   string
+		line   int
+		column int
+	}{
+		{name: "typical", line: 120, column: 24},
+		{name: "large-offset", line: 2147483647, column: 123456789},
+	} {
+		b.Run(item.name, func(b *testing.B) {
+			reference := ProjectReference{
+				Source: RelationEntity{
+					Path: "project/src/example/Reference.java", Language: "java",
+					SymbolID: "symbol:1234", QualifiedName: "example.Reference.handle",
+				},
+				StructuralKind: "call", TargetSpelling: "example.Target.run",
+				Range: Range{
+					Start: Position{Line: item.line, Column: item.column},
+					End:   Position{Line: item.line + 1, Column: item.column + 1},
+				},
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if len(deterministicProjectReferenceID(reference)) != 64 {
+					b.Fatal("reference ID digest length changed")
+				}
+			}
+		})
+	}
+}
+
 // BenchmarkProjectLargeSymbolModelCosts separates immutable model construction
 // from index-owned facts cloning on an analyzer-proven dense Go source file.
 func BenchmarkProjectLargeSymbolModelCosts(b *testing.B) {

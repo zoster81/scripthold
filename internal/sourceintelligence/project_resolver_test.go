@@ -3,6 +3,7 @@ package sourceintelligence
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,48 @@ import (
 
 	"github.com/zoster81/scripthold/internal/operation"
 )
+
+// Reference IDs are stable, length-delimited SHA-256 digests. Preserve the
+// original on-wire identity even for empty, Unicode and unusual positions.
+func TestDeterministicProjectReferenceIDWireParity(t *testing.T) {
+	cases := []ProjectReference{
+		{},
+		{
+			Source: RelationEntity{
+				Path: "project/src/A.java", Language: "java", SymbolID: "id:8",
+				QualifiedName: "package.A.f",
+			},
+			StructuralKind: "call", TargetSpelling: "B.é方法",
+			Range: Range{Start: Position{Line: 12, Column: 7}, End: Position{Line: 12, Column: 19}},
+		},
+		{
+			Source: RelationEntity{
+				Path: "a\x00b", Language: "typescript", QualifiedName: "x",
+			},
+			StructuralKind: "member", TargetSpelling: "some.long.name",
+			Range: Range{Start: Position{Line: -13, Column: 2147483647}, End: Position{Line: 0, Column: -1}},
+		},
+	}
+	for index, reference := range cases {
+		parts := []string{
+			reference.Source.Path, reference.Source.Language, reference.Source.SymbolID,
+			reference.Source.QualifiedName, reference.StructuralKind, reference.TargetSpelling,
+			fmt.Sprintf("%d", reference.Range.Start.Line), fmt.Sprintf("%d", reference.Range.Start.Column),
+			fmt.Sprintf("%d", reference.Range.End.Line), fmt.Sprintf("%d", reference.Range.End.Column),
+		}
+		digest := sha256.New()
+		var length [8]byte
+		for _, part := range parts {
+			binary.BigEndian.PutUint64(length[:], uint64(len(part)))
+			_, _ = digest.Write(length[:])
+			_, _ = digest.Write([]byte(part))
+		}
+		expected := hex.EncodeToString(digest.Sum(nil))
+		if actual := deterministicProjectReferenceID(reference); actual != expected {
+			t.Fatalf("reference ID format case %d: got %s, want %s", index, actual, expected)
+		}
+	}
+}
 
 // BuildProjectModel publishes an immutable model even when the caller later
 // mutates the fact slice and the nested values it supplied.
