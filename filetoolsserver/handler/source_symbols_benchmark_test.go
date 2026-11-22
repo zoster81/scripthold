@@ -142,6 +142,42 @@ func BenchmarkSourceSymbolsConciseDenseParents(b *testing.B) {
 	})
 }
 
+// BenchmarkSourceSymbolsDenseDetailed exercises bounded, full-response
+// single-file outlines at representative large declaration counts.
+func BenchmarkSourceSymbolsDenseDetailed(b *testing.B) {
+	root := b.TempDir()
+	path := filepath.Join(root, "dense-detailed.go")
+	var source strings.Builder
+	source.WriteString("package benchmark\n")
+	for i := 0; i < 5000; i++ {
+		fmt.Fprintf(&source, "func Function%05d(value int) int { return value }\n", i)
+	}
+	if err := os.WriteFile(path, []byte(source.String()), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	h := NewHandler([]string{root})
+	input := SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed", Paths: []string{path},
+		Language: "go", Encoding: "utf-8", MaxSymbols: 6000,
+	}
+	ctx := context.Background()
+	toolResult, seed, err := h.SourceSymbols(ctx, nil, input)
+	if err != nil || toolResult != nil || len(seed.Symbols) != 5001 || seed.Truncated {
+		b.Fatalf("full detailed seed failed: output=%d truncated=%v err=%v tool=%+v",
+			len(seed.Symbols), seed.Truncated, err, toolResult)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		toolResult, output, err := h.SourceSymbols(ctx, nil, input)
+		if err != nil || toolResult != nil || len(output.Symbols) != len(seed.Symbols) ||
+			output.Symbols[0].ID != seed.Symbols[0].ID ||
+			output.Symbols[len(output.Symbols)-1].ID != seed.Symbols[len(seed.Symbols)-1].ID {
+			b.Fatalf("detailed output changed: symbols=%d tool=%+v err=%v", len(output.Symbols), toolResult, err)
+		}
+	}
+}
+
 func BenchmarkSourceSymbolsOperations(b *testing.B) {
 	root := b.TempDir()
 	path := filepath.Join(root, "sample.go")
