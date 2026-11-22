@@ -181,7 +181,7 @@ func (model *ProjectModel) PlanContext(ctx context.Context, targets []ProjectSel
 // single-file context has no parents, structural references or dependencies.
 // All other requests continue through the general context planner.
 func (model *ProjectModel) planFlatPathContext(ctx context.Context, selector ProjectSelector, options ProjectContextOptions) (ProjectContextPlan, bool, error) {
-	if selector.Kind != ProjectSelectorPath || options.MaxItems > 128 {
+	if selector.Kind != ProjectSelectorPath || options.MaxItems > 256 {
 		return ProjectContextPlan{}, false, nil
 	}
 	pathKey := projectPathKey(selector.Path)

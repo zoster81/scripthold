@@ -910,15 +910,17 @@ func TestProjectContextBroadFlatPathMatchesGeneral(t *testing.T) {
 	selector := queryPathSelector(facts)
 	baseline := *model
 	baseline.referencesByTargetIndices = map[string][]int{"unused-ref": nil}
-	for _, budget := range []int{64, 4096, 1 << 20} {
-		options := ProjectContextOptions{MaxItems: 128, MaxDepth: 2, BudgetBytes: budget, BodyPolicy: ProjectContextSignaturesOnly}
-		want, err := baseline.PlanContext(context.Background(), []ProjectSelector{selector}, options)
-		if err != nil {
-			t.Fatalf("general plan budget=%d: %v", budget, err)
-		}
-		got, eligible, err := model.planFlatPathContext(context.Background(), selector, options)
-		if !eligible || err != nil || !reflect.DeepEqual(got, want) {
-			t.Fatalf("broad flat compact plan budget=%d eligible=%t err=%v candidates=%d want=%d", budget, eligible, err, len(got.Candidates), len(want.Candidates))
+	for _, maxItems := range []int{128, 256} {
+		for _, budget := range []int{64, 4096, 1 << 20} {
+			options := ProjectContextOptions{MaxItems: maxItems, MaxDepth: 2, BudgetBytes: budget, BodyPolicy: ProjectContextSignaturesOnly}
+			want, err := baseline.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+			if err != nil {
+				t.Fatalf("general plan items=%d budget=%d: %v", maxItems, budget, err)
+			}
+			got, eligible, err := model.planFlatPathContext(context.Background(), selector, options)
+			if !eligible || err != nil || !reflect.DeepEqual(got, want) {
+				t.Fatalf("broad flat compact plan items=%d budget=%d eligible=%t err=%v candidates=%d want=%d", maxItems, budget, eligible, err, len(got.Candidates), len(want.Candidates))
+			}
 		}
 	}
 }
