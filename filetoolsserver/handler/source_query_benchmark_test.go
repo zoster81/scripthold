@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -222,6 +223,96 @@ func BenchmarkSourceQueryLargeGenerated(b *testing.B) {
 		if err != nil || (result != nil && result.IsError) || output.Search == nil || len(output.Search.Matches) != 1 {
 			b.Fatalf("large generated result=%+v output=%+v err=%v", result, output, err)
 		}
+	}
+}
+
+// BenchmarkSourceQueryDensePositionVersusSymbol compares selectors through the
+// same warm handler index and secure source-file fingerprint pipeline.
+func BenchmarkSourceQueryDensePositionVersusSymbol(b *testing.B) {
+	for _, count := range []int{512, 5000} {
+		b.Run(fmt.Sprintf("functions-%d", count), func(b *testing.B) {
+			root := b.TempDir()
+			path := filepath.Join(root, "dense.go")
+			var source strings.Builder
+			source.WriteString("package dense\n")
+			for i := 0; i < count; i++ {
+				fmt.Fprintf(&source, "func F%04d(value int) int { return value + %d }\n", i, i)
+			}
+			if err := os.WriteFile(path, []byte(source.String()), 0o600); err != nil {
+				b.Fatal(err)
+			}
+			ctx := context.Background()
+			h := NewHandler([]string{root})
+			searchError, search, err := h.SourceQuery(ctx, nil, SourceQueryInput{
+				Operation: "search", Paths: []string{path}, Query: fmt.Sprintf("F%04d", count-1),
+				Mode: "structural", Match: "exact", Language: "go", Encoding: "utf-8",
+				MaxFiles: 1, MaxResults: 8,
+			})
+			if err != nil || searchError != nil || search.Search == nil || len(search.Search.Matches) != 1 {
+				b.Fatalf("dense seed search error=%v toolError=%+v result=%+v", err, searchError, search)
+			}
+			match := search.Search.Matches[0]
+			symbol := SourceSelectorInput{
+				Kind: "symbol", Path: match.Path, SymbolID: match.SymbolID,
+				SourceFingerprint: match.SourceFingerprint,
+			}
+			position := SourceSelectorInput{
+				Kind: "position", Path: match.Path, SourceFingerprint: match.SourceFingerprint,
+				Position: &SourcePositionInput{Line: match.Range.Start.Line, Column: match.Range.Start.Column},
+			}
+			for _, operation := range []string{"relations", "context"} {
+				b.Run(operation, func(b *testing.B) {
+					var baseline SourceQueryOutput
+					for _, selector := range []struct {
+						name  string
+						value SourceSelectorInput
+					}{{"symbol", symbol}, {"position", position}} {
+						input := SourceQueryInput{
+							Operation: operation, Paths: []string{path}, Language: "go",
+							Encoding: "utf-8", MaxFiles: 1,
+						}
+						if operation == "relations" {
+							input.Relation = "definitions"
+							input.Subject = &selector.value
+							input.MaxResults = 8
+							input.MaxNodes = 16
+							input.MaxEdges = 16
+							input.MaxDepth = 1
+						} else {
+							input.Targets = []SourceSelectorInput{selector.value}
+							input.BodyPolicy = "signatures-only"
+							input.BudgetBytes = 4096
+							input.MaxItems = 8
+							input.MaxDepth = 1
+						}
+						seedError, seed, seedErr := h.SourceQuery(ctx, nil, input)
+						if seedErr != nil || seedError != nil || seed.Index != search.Index ||
+							(operation == "relations" && seed.Relations == nil) ||
+							(operation == "context" && (seed.Context == nil || len(seed.Context.Items) == 0 || seed.Context.UsedBytes > seed.Context.BudgetBytes)) {
+							b.Fatalf("%s %s seed err=%v toolError=%+v output=%+v", operation, selector.name, seedErr, seedError, seed)
+						}
+						if selector.name == "symbol" {
+							baseline = seed
+						} else if !reflect.DeepEqual(seed.Relations, baseline.Relations) ||
+							!reflect.DeepEqual(seed.Context, baseline.Context) || seed.Coverage != baseline.Coverage {
+							b.Fatalf("%s position and symbol selectors returned different results", operation)
+						}
+						b.Run(selector.name, func(b *testing.B) {
+							b.ReportAllocs()
+							b.ResetTimer()
+							for i := 0; i < b.N; i++ {
+								toolError, output, err := h.SourceQuery(ctx, nil, input)
+								if err != nil || toolError != nil || output.Index != seed.Index ||
+									(operation == "relations" && output.Relations == nil) ||
+									(operation == "context" && (output.Context == nil || len(output.Context.Items) == 0 || output.Context.UsedBytes > output.Context.BudgetBytes)) {
+									b.Fatalf("%s %s iteration err=%v toolError=%+v output=%+v", operation, selector.name, err, toolError, output)
+								}
+							}
+						})
+					}
+				})
+			}
+		})
 	}
 }
 
