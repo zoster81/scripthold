@@ -367,17 +367,42 @@ func (model *ProjectModel) appendContextSeedsForSelector(seeds []projectContextS
 	if selector.SourceFingerprint != file.facts.SourceFingerprint {
 		return nil, operation.Wrap(operation.KindConflict, "resolve_project_context_selector", file.facts.Path, fmt.Errorf("source fingerprint is stale"))
 	}
-	records := model.contextRootSymbols(pathKey)
-	if cap(seeds)-len(seeds) < len(records) {
-		needed := len(seeds) + len(records)
+	records := model.symbolsByFile[pathKey]
+	flatSorted := true
+	for index := range records {
+		if records[index].symbol.ParentID != "" ||
+			(index > 0 && !projectSymbolRecordLess(records[index-1], records[index])) {
+			flatSorted = false
+			break
+		}
+	}
+	rootCount := len(records)
+	var kindByID map[string]SymbolKind
+	if !flatSorted {
+		kindByID = make(map[string]SymbolKind, len(records))
+		for _, record := range records {
+			kindByID[record.symbol.ID] = record.symbol.Kind
+		}
+		rootCount = 0
+		for _, record := range records {
+			if record.symbol.ParentID == "" || isContextRootContainer(kindByID[record.symbol.ParentID]) {
+				rootCount++
+			}
+		}
+		if rootCount == 0 {
+			rootCount = len(records)
+		}
+	}
+	if cap(seeds)-len(seeds) < rootCount {
+		needed := len(seeds) + rootCount
 		capacity := needed
 		// Amortize repeated path selectors without retaining scratch between
 		// requests. Bound speculative reserve relative to the latest path so
 		// a tiny file after a large file cannot double memory consumption.
 		if prior := cap(seeds); prior > 0 && prior <= int(^uint(0)>>1)/2 && prior*2 > needed {
 			spare := prior*2 - needed
-			if len(records) <= int(^uint(0)>>1)/4 && spare > 4*len(records) {
-				spare = 4 * len(records)
+			if rootCount <= int(^uint(0)>>1)/4 && spare > 4*rootCount {
+				spare = 4 * rootCount
 			}
 			capacity = needed + spare
 		}
@@ -385,8 +410,21 @@ func (model *ProjectModel) appendContextSeedsForSelector(seeds []projectContextS
 		copy(grown, seeds)
 		seeds = grown
 	}
+	start := len(seeds)
 	for _, record := range records {
+		if !flatSorted && rootCount != len(records) && record.symbol.ParentID != "" &&
+			!isContextRootContainer(kindByID[record.symbol.ParentID]) {
+			continue
+		}
 		seeds = append(seeds, projectContextSeed{record: record, evidence: record.symbol.Evidence, resolution: ResolutionResolved})
+	}
+	if !flatSorted {
+		// Preserve the legacy per-path root order without allocating a second
+		// full-sized slice of immutable symbol records.
+		added := seeds[start:]
+		sort.Slice(added, func(i, j int) bool {
+			return projectSymbolRecordLess(added[i].record, added[j].record)
+		})
 	}
 	return seeds, nil
 }

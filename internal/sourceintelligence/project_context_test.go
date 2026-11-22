@@ -611,6 +611,46 @@ func TestProjectContextAppendPathSeedsAmortizesGrowth(t *testing.T) {
 	}
 }
 
+// Nested path seeds must retain the legacy root selection and lexical order
+// while appending to caller-owned scratch without changing immutable records.
+func TestProjectContextNestedSeedAppendMatchesRootSelection(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fact := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join("project", "context", "nested-seeds.ts"),
+		"export class Alpha { work() {} }\nexport class Beta { run() {} }\n")
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{fact}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := projectPathKey(fact.Path)
+	records := model.symbolsByFile[key]
+	if len(records) < 4 {
+		t.Fatalf("expected nested fixture: %d symbols", len(records))
+	}
+	roots := model.contextRootSymbols(key)
+	selector := queryPathSelector(fact)
+	seeds, err := model.appendContextSeedsForSelector(nil, selector)
+	if err != nil || len(seeds) != len(roots) {
+		t.Fatalf("nested seed size changed: seeds=%d roots=%d err=%v", len(seeds), len(roots), err)
+	}
+	for index := range roots {
+		if !reflect.DeepEqual(seeds[index].record, roots[index]) ||
+			seeds[index].evidence != roots[index].symbol.Evidence ||
+			seeds[index].resolution != ResolutionResolved {
+			t.Fatalf("nested root ordering changed at %d", index)
+		}
+	}
+	before := append([]projectSymbolRecord(nil), records...)
+	_, err = model.PlanContext(context.Background(), []ProjectSelector{selector}, ProjectContextOptions{
+		BudgetBytes: 4096, MaxItems: 4, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly,
+	})
+	if err != nil || !reflect.DeepEqual(records, before) {
+		t.Fatalf("context mutated original nested records or failed: %v", err)
+	}
+}
+
 // Mixed selectors append to the request-owned buffer without replacing prior
 // seeds or weakening path fingerprint validation.
 func TestProjectContextAppendSelectorSeedsReusesRequestBuffer(t *testing.T) {
