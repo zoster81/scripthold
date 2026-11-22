@@ -564,6 +564,71 @@ func BenchmarkSharedProjectResolverBuildAndSnapshotScaling(b *testing.B) {
 	}
 }
 
+// BenchmarkProjectContextFlatPath measures root selection and the full bounded
+// context plan when a file contains many already-sorted top-level declarations.
+func BenchmarkProjectContextFlatPath(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, count := range []int{128, 2048} {
+		var source strings.Builder
+		for index := 0; index < count; index++ {
+			fmt.Fprintf(&source, "export class Flat%05d {}\n", index)
+		}
+		document := sourceDocumentForScanner(source.String())
+		document.Path = "project/benchmark/flat.ts"
+		document.SourceFingerprint = benchmarkDigest(document.Text)
+		analyzed, err := (TypeScriptAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 8192))
+		if err != nil || !analyzed.Analysis.CoverageComplete {
+			b.Fatalf("flat source analysis failed: %v", err)
+		}
+		facts := ProjectFileFacts{
+			Path: document.Path, Language: "typescript",
+			SourceFingerprint: document.SourceFingerprint, Analysis: analyzed,
+		}
+		model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, ProjectResolverLimits{
+			MaxFiles: 1, MaxSymbols: 8192, MaxDependencies: 8192, MaxReferences: 8192,
+			MaxCandidatesPerResolution: 64,
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+		key := projectPathKey(document.Path)
+		records := model.symbolsByFile[key]
+		if len(records) < count {
+			b.Fatalf("model retained only %d of %d flat declarations", len(records), count)
+		}
+		for _, record := range records {
+			if record.symbol.ParentID != "" {
+				b.Fatalf("benchmark requires flat declarations: %q", record.symbol.Name)
+			}
+		}
+		selector := ProjectSelector{Kind: ProjectSelectorPath, Path: document.Path, SourceFingerprint: document.SourceFingerprint}
+		options := ProjectContextOptions{BudgetBytes: 1 << 20, MaxItems: 16, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+		b.Run(fmt.Sprintf("symbols-%d/roots", count), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				roots := model.contextRootSymbols(key)
+				if len(roots) != len(records) {
+					b.Fatalf("root count changed: %d", len(roots))
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("symbols-%d/plan-path", count), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				plan, err := model.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+				if err != nil || len(plan.Candidates) != 16 || !plan.Truncated {
+					b.Fatalf("flat path context changed: %d candidates, truncated=%t, err=%v", len(plan.Candidates), plan.Truncated, err)
+				}
+			}
+		})
+	}
+}
+
 // BenchmarkSharedProjectResolverDenseGoScaling separates analysis, immutable
 // model construction, and exact lookup for many declarations in one Go file.
 func BenchmarkSharedProjectResolverDenseGoScaling(b *testing.B) {

@@ -567,6 +567,20 @@ func (model *ProjectModel) contextRootSymbols(pathKey string) []projectSymbolRec
 	if len(records) == 0 {
 		return nil
 	}
+	// The immutable model already sorts its records. A flat file with strictly
+	// increasing sort keys needs neither a parent map nor a copied root slice.
+	// Preserve the original sort for ties, unsorted input and nested ownership.
+	flatSorted := true
+	for index := range records {
+		if records[index].symbol.ParentID != "" ||
+			(index > 0 && !projectSymbolRecordLess(records[index-1], records[index])) {
+			flatSorted = false
+			break
+		}
+	}
+	if flatSorted {
+		return records[:len(records):len(records)]
+	}
 	kindByID := make(map[string]SymbolKind, len(records))
 	for _, record := range records {
 		kindByID[record.symbol.ID] = record.symbol.Kind

@@ -960,16 +960,19 @@ func sortRelationEntities(values []RelationEntity) {
 	})
 }
 
+func projectSymbolRecordLess(left, right projectSymbolRecord) bool {
+	if left.entity.Path != right.entity.Path {
+		return left.entity.Path < right.entity.Path
+	}
+	if left.entity.QualifiedName != right.entity.QualifiedName {
+		return left.entity.QualifiedName < right.entity.QualifiedName
+	}
+	return left.entity.SymbolID < right.entity.SymbolID
+}
+
 func sortProjectSymbolRecords(values []projectSymbolRecord) {
 	sort.Slice(values, func(i, j int) bool {
-		left, right := values[i], values[j]
-		if left.entity.Path != right.entity.Path {
-			return left.entity.Path < right.entity.Path
-		}
-		if left.entity.QualifiedName != right.entity.QualifiedName {
-			return left.entity.QualifiedName < right.entity.QualifiedName
-		}
-		return left.entity.SymbolID < right.entity.SymbolID
+		return projectSymbolRecordLess(values[i], values[j])
 	})
 }
 

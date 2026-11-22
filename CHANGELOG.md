@@ -12,6 +12,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Changed
 
+- Path-selected `source_query.context` now borrows already sorted, parentless immutable project symbol records instead of rebuilding a parent-kind map and full copied root array. Unsorted or nested records retain the original filtered, sorted result; source fingerprints, context budgets, ordering, and public responses are unchanged.
 - Recursive workspace traversal now prepares normalized authorized roots once per walk instead of repeating Windows long-path normalization for every entry. Each file and directory is still freshly resolved and checked against the allowed roots, including junction and reparse-point boundaries; ordering, filtering, and public tool results remain unchanged.
 - Incremental `source_query` project-index refreshes now reuse immutable, sorted symbol records for unchanged source files instead of rebuilding those records on every generation. Global symbol indexes and cross-file relationships are still reconstructed to reflect changes; source fingerprints, language-registry changes, cancellation, stale generation selection, deterministic ordering, and public responses retain their safeguards.
 - `source_query.context` now visits each target file's root declarations at most once during direct-dependency planning, avoiding repeated symbol lookups for multiple imports from the same file. The first dependency's evidence, deterministic candidate order, context budgets, fingerprints, and public results are preserved.

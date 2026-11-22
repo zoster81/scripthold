@@ -415,6 +415,51 @@ func TestProjectContextPlannerBorrowsFlatImmutableRootSymbols(t *testing.T) {
 	}
 }
 
+// Sorted, parentless model records are immutable after construction. A path
+// context may read them without an additional map or mutable copy.
+func TestProjectContextModelBorrowsSortedFlatRoots(t *testing.T) {
+	records := make([]projectSymbolRecord, 3, 6)
+	for index, name := range []string{"A", "B", "C"} {
+		records[index] = projectSymbolRecord{
+			symbol: NormalizedSymbol{ID: name, Name: name, Kind: SymbolKindClass},
+			entity: RelationEntity{Path: "flat.ts", QualifiedName: name, SymbolID: name},
+		}
+	}
+	model := &ProjectModel{symbolsByFile: map[string][]projectSymbolRecord{"flat": records}}
+	roots := model.contextRootSymbols("flat")
+	if len(roots) != len(records) || &roots[0] != &records[0] {
+		t.Fatal("sorted flat roots copied instead of borrowing immutable model records")
+	}
+	if cap(roots) != len(roots) {
+		t.Fatalf("borrowed roots capacity=%d, want %d", cap(roots), len(roots))
+	}
+	_ = append(roots, projectSymbolRecord{symbol: NormalizedSymbol{ID: "external"}})
+	if records[:cap(records)][len(records)].symbol.ID != "" {
+		t.Fatal("append to borrowed roots modified the model storage")
+	}
+
+	// Synthetic unsorted records must retain the historical sorted result.
+	unsorted := []projectSymbolRecord{records[1], records[0], records[2]}
+	model.symbolsByFile["flat"] = unsorted
+	got := model.contextRootSymbols("flat")
+	if &got[0] == &unsorted[0] || got[0].symbol.ID != "A" || got[1].symbol.ID != "B" {
+		t.Fatalf("unsorted roots did not retain sorted, independent output: %+v", got)
+	}
+
+	// Equal canonical keys may contain distinct declaration details. Keep
+	// the original copied/sorted path for ties rather than changing tie order.
+	tied := []projectSymbolRecord{records[0], records[0]}
+	tied[1].symbol.Name = "OtherDeclaration"
+	model.symbolsByFile["flat"] = tied
+	got = model.contextRootSymbols("flat")
+	if len(got) != len(tied) || &got[0] == &tied[0] {
+		t.Fatal("equal sort keys must retain the independent fallback")
+	}
+	if got[0].symbol.Name != tied[0].symbol.Name || got[1].symbol.Name != tied[1].symbol.Name {
+		t.Fatalf("tied declaration order changed: %+v", got)
+	}
+}
+
 func TestProjectContextRootSymbolsPreserveParentKindsAndFallback(t *testing.T) {
 	record := func(id, parent string, kind SymbolKind) projectSymbolRecord {
 		return projectSymbolRecord{
