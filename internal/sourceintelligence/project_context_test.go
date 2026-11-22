@@ -339,6 +339,48 @@ func hasContextCandidate(values []ProjectContextCandidate, path string, reason C
 	return false
 }
 
+// Repeated imports of one file must keep the first dependency's evidence
+// and deterministic root order, without duplicating context candidates.
+func TestProjectContextDirectDependenciesRepeatedTargetsPreserveFirstEvidence(t *testing.T) {
+	const sourcePath, targetPath = "project/client.ts", "project/shared.ts"
+	model := &ProjectModel{
+		symbolsByFile: map[string][]projectSymbolRecord{
+			projectPathKey(targetPath): {{
+				pathKey: projectPathKey(targetPath),
+				symbol: NormalizedSymbol{
+					ID: "class-id", Kind: SymbolKindClass,
+					declarationOffsets: OffsetRange{Start: 0, End: 10},
+				},
+				entity: RelationEntity{Path: targetPath, SymbolID: "class-id"},
+			}},
+		},
+		dependenciesBySource: map[string][]ProjectDependency{
+			projectPathKey(sourcePath): {
+				{Targets: []RelationEntity{{Path: targetPath}, {Path: targetPath}}, Evidence: SymbolEvidenceStructural, Resolution: ResolutionResolved},
+				{Targets: []RelationEntity{{Path: targetPath}}, Evidence: SymbolEvidenceScopeResolved, Resolution: ResolutionAmbiguous},
+			},
+		},
+	}
+	planner := projectContextPlanner{
+		model:   model,
+		options: ProjectContextOptions{BudgetBytes: 1024, MaxItems: 4, BodyPolicy: ProjectContextSignaturesOnly},
+		seen:    make(map[projectContextKey]struct{}),
+	}
+	seeds := []projectContextSeed{{record: projectSymbolRecord{pathKey: projectPathKey(sourcePath)}}}
+	if err := planner.addDirectDependencies(context.Background(), seeds); err != nil {
+		t.Fatal(err)
+	}
+	if len(planner.plan.Candidates) != 1 {
+		t.Fatalf("duplicate dependency targets yielded %d candidates, want 1", len(planner.plan.Candidates))
+	}
+	candidate := planner.plan.Candidates[0]
+	if candidate.Entity.Path != targetPath || candidate.Entity.SymbolID != "class-id" ||
+		candidate.Reason != ContextDirectDependency ||
+		candidate.Evidence != SymbolEvidenceStructural || candidate.Resolution != ResolutionResolved {
+		t.Fatalf("first dependency evidence or root ordering changed: %+v", candidate)
+	}
+}
+
 // A planner may borrow already-sorted, immutable model records when every
 // symbol is a root. Nested symbols still require a separately filtered slice.
 func TestProjectContextPlannerBorrowsFlatImmutableRootSymbols(t *testing.T) {

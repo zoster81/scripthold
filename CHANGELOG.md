@@ -12,6 +12,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Changed
 
+- `source_query.context` now visits each target file's root declarations at most once during direct-dependency planning, avoiding repeated symbol lookups for multiple imports from the same file. The first dependency's evidence, deterministic candidate order, context budgets, fingerprints, and public results are preserved.
 - `source_query.context` now borrows the existing immutable, sorted project-symbol records when a dependency file contains only top-level declarations, rather than rebuilding an identical root-symbol slice and parent-kind map for each plan. Nested and malformed-parent files retain the original filtering path; ordering, fingerprints, context limits, and public responses are unchanged.
 - Source Symbols and Source Query response-size checks now use their existing legacy JSON serializers directly instead of passing the same JSON through a second encoder. This reduces response processing time on large outputs while preserving exact byte limits, Unicode escaping, error handling, and public JSON. Other value types retain the existing counting encoder.
 - Concise `source_symbols` digest and outline now retain only the parent facts needed to establish top-level declarations. Owner-filtered concise outlines skip the unnecessary ancestry index entirely. Large source files use less temporary memory without changing owner selection, nested declarations, incomplete ancestry handling, truncation, or public responses.

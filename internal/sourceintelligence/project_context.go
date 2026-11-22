@@ -309,13 +309,22 @@ func (planner *projectContextPlanner) addEnclosing(ctx context.Context, seeds []
 }
 
 func (planner *projectContextPlanner) addDirectDependencies(ctx context.Context, seeds []projectContextSeed) error {
+	// Every dependency into the same file visits the same root symbols.
+	// The first occurrence determines their evidence; later visits cannot
+	// add new candidates because the planner already tracks each symbol.
+	visitedTargets := make(map[string]struct{})
 	for _, pathKey := range contextSeedPathKeys(seeds) {
 		for _, dependency := range planner.model.dependenciesBySource[pathKey] {
 			if err := ctx.Err(); err != nil {
 				return operation.Wrap(operation.KindCancelled, "plan_project_context", dependency.Source.Path, err)
 			}
 			for _, target := range dependency.Targets {
-				for _, record := range planner.contextRootSymbols(projectPathKey(target.Path)) {
+				targetPathKey := projectPathKey(target.Path)
+				if _, visited := visitedTargets[targetPathKey]; visited {
+					continue
+				}
+				visitedTargets[targetPathKey] = struct{}{}
+				for _, record := range planner.contextRootSymbols(targetPathKey) {
 					if err := planner.add(record, ContextDirectDependency, 3, dependency.Evidence, dependency.Resolution, false); err != nil {
 						return err
 					}
