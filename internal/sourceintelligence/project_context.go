@@ -273,26 +273,36 @@ func validContextOffsets(value OffsetRange) bool {
 	return value.Start >= 0 && value.End > value.Start
 }
 
+// visitContextAncestors centralizes cycle and cancellation protection for both
+// context consumers without allocating an intermediate ancestry slice.
+func (model *ProjectModel) visitContextAncestors(ctx context.Context, current projectSymbolRecord, visit func(projectSymbolRecord) error) error {
+	visited := make(map[string]struct{})
+	for current.symbol.ParentID != "" {
+		if err := ctx.Err(); err != nil {
+			return operation.Wrap(operation.KindCancelled, "plan_project_context", current.entity.Path, err)
+		}
+		if _, seen := visited[current.symbol.ParentID]; seen {
+			break
+		}
+		visited[current.symbol.ParentID] = struct{}{}
+		parent, ok := model.contextSymbolByID(current.pathKey, current.symbol.ParentID)
+		if !ok {
+			break
+		}
+		if err := visit(parent); err != nil {
+			return err
+		}
+		current = parent
+	}
+	return nil
+}
+
 func (planner *projectContextPlanner) addEnclosing(ctx context.Context, seeds []projectContextSeed) error {
 	for _, seed := range seeds {
-		current := seed.record
-		visited := make(map[string]struct{})
-		for current.symbol.ParentID != "" {
-			if err := ctx.Err(); err != nil {
-				return operation.Wrap(operation.KindCancelled, "plan_project_context", current.entity.Path, err)
-			}
-			if _, seen := visited[current.symbol.ParentID]; seen {
-				break
-			}
-			visited[current.symbol.ParentID] = struct{}{}
-			parent, ok := planner.model.contextSymbolByID(current.pathKey, current.symbol.ParentID)
-			if !ok {
-				break
-			}
-			if err := planner.add(parent, ContextEnclosing, 2, parent.symbol.Evidence, ResolutionResolved, false); err != nil {
-				return err
-			}
-			current = parent
+		if err := planner.model.visitContextAncestors(ctx, seed.record, func(parent projectSymbolRecord) error {
+			return planner.add(parent, ContextEnclosing, 2, parent.symbol.Evidence, ResolutionResolved, false)
+		}); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -320,22 +330,11 @@ func (planner *projectContextPlanner) addReverseAndTypeRelations(ctx context.Con
 	records := make([]projectSymbolRecord, 0, len(seeds)*2)
 	for _, seed := range seeds {
 		records = append(records, seed.record)
-		current := seed.record
-		visited := make(map[string]struct{})
-		for current.symbol.ParentID != "" {
-			if err := ctx.Err(); err != nil {
-				return operation.Wrap(operation.KindCancelled, "plan_project_context", current.entity.Path, err)
-			}
-			if _, seen := visited[current.symbol.ParentID]; seen {
-				break
-			}
-			visited[current.symbol.ParentID] = struct{}{}
-			parent, ok := planner.model.contextSymbolByID(current.pathKey, current.symbol.ParentID)
-			if !ok {
-				break
-			}
+		if err := planner.model.visitContextAncestors(ctx, seed.record, func(parent projectSymbolRecord) error {
 			records = append(records, parent)
-			current = parent
+			return nil
+		}); err != nil {
+			return err
 		}
 	}
 	sortProjectSymbolRecords(records)
