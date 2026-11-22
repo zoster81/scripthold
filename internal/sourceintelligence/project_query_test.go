@@ -521,6 +521,74 @@ func TestProjectForwardSourceIDIndexPreservesLegacyRelations(t *testing.T) {
 	}
 }
 
+// Pin the position fallback's ordering and half-open range rules before
+// considering any positional index. Records are sorted by model order, not by
+// source location; equal-priority/equal-start matches keep the first record.
+func TestMostSpecificSymbolAtPriorityAndRangeTies(t *testing.T) {
+	rangeAt := func(startLine, startColumn, endLine, endColumn int) Range {
+		return Range{Start: Position{Line: startLine, Column: startColumn},
+			End: Position{Line: endLine, Column: endColumn}}
+	}
+	outer := projectSymbolRecord{
+		symbol: NormalizedSymbol{ID: "outer", DeclarationRange: rangeAt(1, 1, 14, 1),
+			NameRange: rangeAt(1, 4, 1, 10)},
+		entity: RelationEntity{QualifiedName: "pkg.Outer"},
+	}
+	child := projectSymbolRecord{
+		symbol: NormalizedSymbol{ID: "child", DeclarationRange: rangeAt(5, 1, 8, 1),
+			NameRange: rangeAt(5, 5, 5, 10)},
+		entity: RelationEntity{QualifiedName: "pkg.ZChild"},
+	}
+	alias := projectSymbolRecord{
+		symbol: NormalizedSymbol{ID: "alias", DeclarationRange: rangeAt(5, 1, 8, 1),
+			NameRange: rangeAt(5, 5, 5, 10)},
+		entity: RelationEntity{QualifiedName: "pkg.AAlias"},
+	}
+	laterBody := rangeAt(7, 1, 9, 1)
+	later := projectSymbolRecord{
+		symbol: NormalizedSymbol{ID: "later", DeclarationRange: rangeAt(6, 1, 7, 1),
+			NameRange: rangeAt(6, 5, 6, 10), BodyRange: &laterBody},
+		entity: RelationEntity{QualifiedName: "pkg.Later"},
+	}
+	records := []projectSymbolRecord{child, outer, later, alias}
+	sortProjectSymbolRecords(records)
+	for _, tc := range []struct {
+		name string
+		at   Position
+		want string
+	}{
+		{"name-over-declaration", Position{5, 6}, "alias"},
+		{"declaration-later-start", Position{5, 12}, "alias"},
+		{"name-over-enclosing-declaration", Position{6, 6}, "later"},
+		{"declaration-over-body", Position{7, 2}, "alias"},
+		{"outer-declaration", Position{9, 2}, "outer"},
+		{"end-is-exclusive", Position{14, 1}, ""},
+		{"before-any-declaration", Position{1, 0}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, found := mostSpecificSymbolAt(records, tc.at)
+			if found != (tc.want != "") || (found && got.symbol.ID != tc.want) {
+				t.Fatalf("position %+v selected %q (found=%v), want %q", tc.at, got.symbol.ID, found, tc.want)
+			}
+		})
+	}
+
+	earlierBody := rangeAt(3, 1, 12, 1)
+	laterBody = rangeAt(5, 1, 10, 1)
+	bodyRecords := []projectSymbolRecord{
+		{symbol: NormalizedSymbol{ID: "earlier", DeclarationRange: rangeAt(1, 1, 1, 12),
+			NameRange: rangeAt(1, 3, 1, 8), BodyRange: &earlierBody},
+			entity: RelationEntity{QualifiedName: "pkg.AEarlier"}},
+		{symbol: NormalizedSymbol{ID: "later", DeclarationRange: rangeAt(4, 1, 4, 12),
+			NameRange: rangeAt(4, 3, 4, 8), BodyRange: &laterBody},
+			entity: RelationEntity{QualifiedName: "pkg.ZLater"}},
+	}
+	sortProjectSymbolRecords(bodyRecords)
+	if got, ok := mostSpecificSymbolAt(bodyRecords, Position{6, 3}); !ok || got.symbol.ID != "later" {
+		t.Fatalf("overlapping bodies must select later declaration: %+v found=%v", got, ok)
+	}
+}
+
 func TestProjectPositionSelectorsPreserveCanonicalSourceAliases(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
