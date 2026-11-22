@@ -14,6 +14,134 @@ import (
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
 
+// TestSourceConciseParentProjectionPreservesNestedAndAmbiguousOwnership checks
+// missing parents, cyclic ancestry, duplicate IDs, and selected owners.
+func TestSourceConciseParentProjectionPreservesNestedAndAmbiguousOwnership(t *testing.T) {
+	const path = "project/source.go"
+	symbols := []sourceintelligence.NormalizedSymbol{
+		{ID: "pkg", Name: "Package", Kind: sourceintelligence.SymbolKindPackage, Path: path},
+		{ID: "ns", Name: "Namespace", ParentID: "pkg", Kind: sourceintelligence.SymbolKindNamespace, Path: path},
+		{ID: "top", Name: "Top", Kind: sourceintelligence.SymbolKindFunction, Path: path},
+		{ID: "via", Name: "ViaNamespace", ParentID: "ns", Kind: sourceintelligence.SymbolKindFunction, Path: path},
+		{ID: "owner", Name: "Owner", ParentID: "ns", Kind: sourceintelligence.SymbolKindClass, Path: path},
+		{ID: "method", Name: "Method", ParentID: "owner", Kind: sourceintelligence.SymbolKindMethod, Path: path},
+		{ID: "orphan", Name: "Orphan", ParentID: "missing", Kind: sourceintelligence.SymbolKindFunction, Path: path},
+		{ID: "cycle-a", Name: "CycleA", ParentID: "cycle-b", Kind: sourceintelligence.SymbolKindModule, Path: path},
+		{ID: "cycle-b", Name: "CycleB", ParentID: "cycle-a", Kind: sourceintelligence.SymbolKindModule, Path: path},
+		{ID: "cycle-func", Name: "CycleFunction", ParentID: "cycle-a", Kind: sourceintelligence.SymbolKindFunction, Path: path},
+		{ID: "duplicate", Name: "EarlierNamespace", Kind: sourceintelligence.SymbolKindNamespace, Path: path},
+		{ID: "duplicate", Name: "LaterClass", Kind: sourceintelligence.SymbolKindClass, Path: path},
+		{ID: "duplicate-child", Name: "DuplicateChild", ParentID: "duplicate", Kind: sourceintelligence.SymbolKindFunction, Path: path},
+	}
+	analyses := []sourceFileAnalysis{{
+		file: SourceSymbolsFile{Path: path, Status: "parsed", CoverageComplete: true},
+		analysis: sourceintelligence.AnalyzerResult{
+			Analysis: sourceintelligence.AnalysisResult{Symbols: symbols, CoverageComplete: true},
+		},
+	}}
+	digest := buildSourceConciseDigest(analyses, []string{path}, false)
+	if len(digest.ConciseFiles) != 1 {
+		t.Fatalf("concise digest files: %+v", digest.ConciseFiles)
+	}
+	if got := digest.ConciseFiles[0]; !slices.Equal(got.Functions, []string{"Top", "ViaNamespace"}) ||
+		!slices.Equal(got.Classes, []string{"Owner", "LaterClass"}) {
+		t.Fatalf("top-level digest changed: %+v", got)
+	}
+	outline := buildSourceConciseOutline(analyses, []string{path}, "", nil, false, 64)
+	if len(outline.ConciseFiles) != 1 {
+		t.Fatalf("concise outline files: %+v", outline.ConciseFiles)
+	}
+	got := outline.ConciseFiles[0]
+	if !slices.Equal(got.Functions, []string{"Top", "ViaNamespace"}) ||
+		len(got.Owners) != 2 || got.Owners[0].Name != "Owner" ||
+		len(got.Owners[0].Methods) != 1 || got.Owners[0].Methods[0].Name != "Method" {
+		t.Fatalf("top-level concise outline changed: %+v", got)
+	}
+	selected := buildSourceConciseOutline(analyses, []string{path}, "Owner", nil, false, 64)
+	if len(selected.ConciseFiles) != 1 || len(selected.ConciseFiles[0].Owners) != 1 ||
+		selected.ConciseFiles[0].Owners[0].Name != "Owner" ||
+		len(selected.ConciseFiles[0].Owners[0].Methods) != 1 ||
+		len(selected.ConciseFiles[0].Functions) != 0 {
+		t.Fatalf("filtered concise outline changed: %+v", selected)
+	}
+	missing := buildSourceConciseOutline(analyses, []string{path}, "MissingOwner", nil, false, 64)
+	if len(missing.ConciseFiles) != 0 || !missing.CoverageComplete || missing.Ambiguous {
+		t.Fatalf("missing-owner result changed: %+v", missing)
+	}
+}
+
+// BenchmarkSourceSymbolsConciseDenseParents exercises the full handler and
+// isolated presentation for files with many top-level functions. A requested
+// owner intentionally matches nothing and must preserve complete coverage.
+func BenchmarkSourceSymbolsConciseDenseParents(b *testing.B) {
+	root := b.TempDir()
+	path := filepath.Join(root, "dense.go")
+	var source strings.Builder
+	source.WriteString("package benchmark\n")
+	const count = 5000
+	for i := 0; i < count; i++ {
+		fmt.Fprintf(&source, "func Function%05d(value int) int { return value }\n", i)
+	}
+	if err := os.WriteFile(path, []byte(source.String()), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	h := NewHandler([]string{root})
+	input := SourceSymbolsInput{
+		Operation: "outline", Presentation: "concise", Paths: []string{path},
+		Language: "go", Encoding: "utf-8", Owner: "MissingOwner",
+		MaxSymbols: 64,
+	}
+	ctx := context.Background()
+	callResult, baseline, err := h.SourceSymbols(ctx, nil, input)
+	if err != nil || callResult != nil || baseline.SymbolCount != 0 ||
+		!baseline.CoverageComplete || len(baseline.ConciseFiles) != 0 {
+		b.Fatalf("missing owner seed: result=%+v output=%+v err=%v", callResult, baseline, err)
+	}
+	benchSymbols := make([]sourceintelligence.NormalizedSymbol, count)
+	for i := range benchSymbols {
+		benchSymbols[i] = sourceintelligence.NormalizedSymbol{
+			ID:   fmt.Sprintf("function-%05d", i),
+			Path: path, Name: fmt.Sprintf("Function%05d", i),
+			Kind: sourceintelligence.SymbolKindFunction,
+		}
+	}
+	analyses := []sourceFileAnalysis{{
+		file: SourceSymbolsFile{Path: path, Status: "parsed", CoverageComplete: true},
+		analysis: sourceintelligence.AnalyzerResult{
+			Analysis: sourceintelligence.AnalysisResult{Symbols: benchSymbols, CoverageComplete: true},
+		},
+	}}
+	b.Run("isolated-no-owner", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			out := buildSourceConciseOutline(analyses, []string{path}, "", nil, false, 64)
+			if len(out.ConciseFiles) != 1 || len(out.ConciseFiles[0].Functions) != 64 ||
+				!out.ConciseResultsTruncated {
+				b.Fatal("concise unfiltered output changed")
+			}
+		}
+	})
+	b.Run("isolated-missing-owner", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			out := buildSourceConciseOutline(analyses, []string{path}, "MissingOwner", nil, false, 64)
+			if len(out.ConciseFiles) != 0 || !out.CoverageComplete || out.SymbolCount != 0 {
+				b.Fatal("concise missing-owner output changed")
+			}
+		}
+	})
+	b.Run("full-handler-missing-owner", func(b *testing.B) {
+		b.ReportAllocs()
+		for i := 0; i < b.N; i++ {
+			toolResult, output, err := h.SourceSymbols(ctx, nil, input)
+			if err != nil || toolResult != nil || output.SymbolCount != 0 ||
+				!output.CoverageComplete || len(output.ConciseFiles) != 0 {
+				b.Fatalf("full missing-owner output changed: %v %+v", err, toolResult)
+			}
+		}
+	})
+}
+
 func BenchmarkSourceSymbolsOperations(b *testing.B) {
 	root := b.TempDir()
 	path := filepath.Join(root, "sample.go")

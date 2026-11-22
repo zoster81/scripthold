@@ -473,10 +473,7 @@ func buildSourceConciseDigest(analyses []sourceFileAnalysis, roots []string, sel
 				out.ConciseAnalysisComplete = false
 				entry.Status = "partial"
 			}
-			parents := make(map[string]sourceintelligence.NormalizedSymbol, len(current.analysis.Analysis.Symbols))
-			for _, symbol := range current.analysis.Analysis.Symbols {
-				parents[symbol.ID] = symbol
-			}
+			parents := sourceConciseParents(current.analysis.Analysis.Symbols)
 			for _, symbol := range current.analysis.Analysis.Symbols {
 				if !sourceConciseTopLevel(symbol, parents) {
 					continue
@@ -501,7 +498,7 @@ func buildSourceConciseDigest(analyses []sourceFileAnalysis, roots []string, sel
 
 // Only package/namespace/module containers may stand between a declaration
 // and file scope; a method or nested class is not a top-level declaration.
-func sourceConciseTopLevel(symbol sourceintelligence.NormalizedSymbol, symbols map[string]sourceintelligence.NormalizedSymbol) bool {
+func sourceConciseTopLevel(symbol sourceintelligence.NormalizedSymbol, symbols map[string]sourceConciseParent) bool {
 	for id, steps := symbol.ParentID, 0; id != ""; steps++ {
 		if steps >= len(symbols) {
 			return false
@@ -510,9 +507,9 @@ func sourceConciseTopLevel(symbol sourceintelligence.NormalizedSymbol, symbols m
 		if !ok {
 			return false
 		}
-		switch parent.Kind {
+		switch parent.kind {
 		case sourceintelligence.SymbolKindPackage, sourceintelligence.SymbolKindNamespace, sourceintelligence.SymbolKindModule:
-			id = parent.ParentID
+			id = parent.parentID
 		default:
 			return false
 		}
@@ -598,7 +595,10 @@ func buildSourceConciseOutline(analyses []sourceFileAnalysis, roots []string, re
 		}
 		ownerByID := make(map[string]int)
 		symbols := current.analysis.Analysis.Symbols
-		parents := sourceConciseParents(symbols)
+		var parents map[string]sourceConciseParent
+		if requestedOwner == "" {
+			parents = sourceConciseParents(symbols)
+		}
 		for _, symbol := range symbols {
 			if !sourceConciseOwnerKind(symbol.Kind) || (requestedOwner != "" &&
 				requestedOwner != symbol.Name && requestedOwner != symbol.QualifiedName) {
@@ -671,10 +671,17 @@ func sourceConciseOwnerKind(kind sourceintelligence.SymbolKind) bool {
 	}
 }
 
-func sourceConciseParents(symbols []sourceintelligence.NormalizedSymbol) map[string]sourceintelligence.NormalizedSymbol {
-	parents := make(map[string]sourceintelligence.NormalizedSymbol, len(symbols))
+// Only these two fields participate in resolving source-owned ancestry.
+// Retaining entire normalized symbols here duplicates large parser records.
+type sourceConciseParent struct {
+	kind     sourceintelligence.SymbolKind
+	parentID string
+}
+
+func sourceConciseParents(symbols []sourceintelligence.NormalizedSymbol) map[string]sourceConciseParent {
+	parents := make(map[string]sourceConciseParent, len(symbols))
 	for _, symbol := range symbols {
-		parents[symbol.ID] = symbol
+		parents[symbol.ID] = sourceConciseParent{kind: symbol.Kind, parentID: symbol.ParentID}
 	}
 	return parents
 }
