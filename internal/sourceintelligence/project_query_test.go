@@ -690,6 +690,9 @@ func TestStructuralSearchKindFiltersMatchUnfilteredPublicProjection(t *testing.T
 		options ProjectSearchOptions
 	}{
 		{"exact-class", ProjectSearchOptions{Query: "ChildB", Match: ProjectSearchExact, Kinds: []string{"CLASS"}, MaxResults: 2}},
+		{"exact-qualified", ProjectSearchOptions{Query: "demo.ChildB", Match: ProjectSearchExact, Kinds: []string{"class"}, MaxResults: 2}},
+		{"exact-method-truncated", ProjectSearchOptions{Query: "Run", Match: ProjectSearchExact, Kinds: []string{"method"}, MaxResults: 1}},
+		{"exact-case-sensitive", ProjectSearchOptions{Query: "childb", Match: ProjectSearchExact, Kinds: []string{"class"}, MaxResults: 2}},
 		{"exact-missing", ProjectSearchOptions{Query: "Absent", Match: ProjectSearchExact, Kinds: []string{"class"}, MaxResults: 2}},
 		{"prefix-truncated", ProjectSearchOptions{Query: "Child", Match: ProjectSearchPrefix, Kinds: []string{" class "}, MaxResults: 1}},
 		{"prefix-rejected-kind", ProjectSearchOptions{Query: "Child", Match: ProjectSearchPrefix, Kinds: []string{"method"}, MaxResults: 8}},
@@ -736,6 +739,106 @@ func TestStructuralSearchKindFiltersMatchUnfilteredPublicProjection(t *testing.T
 				t.Fatalf("filtered JSON mismatch: got=%s want=%s", gotJSON, wantJSON)
 			}
 		})
+	}
+}
+
+func TestIndexedExactKindSearchCandidatesAndOriginalAliasFallback(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := []ProjectFileFacts{
+		projectResolverFacts(t, JavaAnalyzer{}, "project/exact-index/ChildA.java", "package demo; public class ChildA {}\n"),
+		projectResolverFacts(t, JavaAnalyzer{}, "project/exact-index/ChildB.java", "package demo; public class ChildB {}\n"),
+	}
+	model, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{"ChildB", "demo.ChildB"} {
+		candidates, indexed := model.exactSymbolCandidates(query)
+		if !indexed || len(candidates) != 1 || candidates[0].symbol.Name != "ChildB" {
+			t.Fatalf("query %q candidates=%+v indexed=%t", query, candidates, indexed)
+		}
+	}
+	if candidates, indexed := model.exactSymbolCandidates("MissingClass"); !indexed || len(candidates) != 0 {
+		t.Fatalf("missing exact candidate index: candidates=%+v indexed=%t", candidates, indexed)
+	}
+	for index := range facts[1].Analysis.Analysis.Symbols {
+		if facts[1].Analysis.Analysis.Symbols[index].Name == "ChildB" {
+			facts[1].Analysis.Analysis.Symbols[index].sourceSpelling = "ChildB$"
+		}
+	}
+	aliasModel, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidates, indexed := aliasModel.exactSymbolCandidates("ChildB$"); indexed || candidates != nil {
+		t.Fatalf("original spelling must preserve full-scan semantics: candidates=%+v indexed=%t", candidates, indexed)
+	}
+	result, err := aliasModel.StructuralSearch(context.Background(), ProjectSearchOptions{
+		Query: "ChildB$", Match: ProjectSearchExact, Kinds: []string{"class"}, MaxResults: 2,
+	})
+	if err != nil || len(result.Matches) != 1 || result.Matches[0].Name != "ChildB" {
+		t.Fatalf("original spelling lookup mismatch: result=%+v err=%v", result, err)
+	}
+}
+
+func TestIndexedExactKindSearchPaginationParity(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := make([]ProjectFileFacts, 0, 40)
+	for index := 0; index < 40; index++ {
+		name := fmt.Sprintf("Child%03d", index)
+		facts = append(facts, projectResolverFacts(t, JavaAnalyzer{}, "project/exact-pages/"+name+".java",
+			"package demo; public class "+name+" { public void Run() {} }\n"))
+	}
+	model, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidates, indexed := model.exactSymbolCandidates("Run"); !indexed || len(candidates) != 40 {
+		t.Fatalf("indexed method candidates=%d indexed=%t", len(candidates), indexed)
+	}
+	raw, err := model.StructuralSearch(context.Background(), ProjectSearchOptions{
+		Query: "Run", Match: ProjectSearchExact, MaxResults: 256,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := make([]ProjectSearchMatch, 0, 40)
+	for _, match := range raw.Matches {
+		if match.Kind == SymbolKindMethod {
+			want = append(want, match)
+		}
+	}
+	if len(want) != 40 {
+		t.Fatalf("unfiltered method count=%d want=40", len(want))
+	}
+	for repeat := 0; repeat < 3; repeat++ {
+		var combined []ProjectSearchMatch
+		var after *ProjectSearchMatch
+		var occurrences int
+		for page := 0; page < 10; page++ {
+			result, err := model.StructuralSearch(context.Background(), ProjectSearchOptions{
+				Query: "Run", Match: ProjectSearchExact, Kinds: []string{"method"}, MaxResults: 7,
+				After: after, AfterOccurrences: occurrences,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			combined = append(combined, result.Matches...)
+			if !result.Truncated {
+				break
+			}
+			last := result.Matches[len(result.Matches)-1]
+			after, occurrences = &last, result.LastOccurrences
+		}
+		if !reflect.DeepEqual(combined, want) {
+			t.Fatalf("repeat %d paged exact search differs: got=%+v want=%+v", repeat, combined, want)
+		}
 	}
 }
 

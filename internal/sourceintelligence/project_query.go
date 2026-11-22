@@ -147,6 +147,30 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 	collector.afterOccurrences = options.AfterOccurrences
 	filterKindFirst := len(kindFilter) != 0 && matchMode != ProjectSearchExact
 	filterKindAfterText := len(kindFilter) != 0 && matchMode == ProjectSearchExact
+	// Tiny models are cheaper to scan than to allocate request-local indexes.
+	if filterKindAfterText && len(model.symbolsByName) >= 32 {
+		if candidates, indexed := model.exactSymbolCandidates(query); indexed {
+			for _, record := range candidates {
+				if err := ctx.Err(); err != nil {
+					return ProjectSearchResult{}, operation.Wrap(operation.KindCancelled, "project_structural_search", record.entity.Path, err)
+				}
+				if _, ok := kindFilter[strings.ToLower(string(record.symbol.Kind))]; !ok || !acceptEvidence(record.symbol.Evidence) {
+					continue
+				}
+				if record.symbol.Name != query && record.symbol.QualifiedName != query {
+					continue
+				}
+				collector.append(projectSearchMatchForSymbol(*record))
+			}
+			if err := ctx.Err(); err != nil {
+				return ProjectSearchResult{}, operation.Wrap(operation.KindCancelled, "project_structural_search", "", err)
+			}
+			if options.After != nil && collector.seenAfter < options.AfterOccurrences {
+				return ProjectSearchResult{}, operation.New(operation.KindConflict, "structural search continuation no longer identifies its anchor")
+			}
+			return collector.result(), nil
+		}
+	}
 	for _, pathKey := range model.fileOrder {
 		if err := ctx.Err(); err != nil {
 			return ProjectSearchResult{}, operation.Wrap(operation.KindCancelled, "project_structural_search", model.files[pathKey].facts.Path, err)
@@ -167,7 +191,7 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 					continue
 				}
 			}
-			collector.append(ProjectSearchMatch{Path: record.entity.Path, Language: record.entity.Language, Name: record.symbol.Name, Kind: record.symbol.Kind, QualifiedName: record.symbol.QualifiedName, Range: record.symbol.NameRange, SymbolID: record.entity.SymbolID, SourceFingerprint: record.entity.SourceFingerprint, Evidence: record.symbol.Evidence})
+			collector.append(projectSearchMatchForSymbol(record))
 		}
 		if len(kindFilter) != 0 {
 			continue
@@ -194,6 +218,70 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 		return ProjectSearchResult{}, operation.New(operation.KindConflict, "structural search continuation no longer identifies its anchor")
 	}
 	return collector.result(), nil
+}
+
+// exactSymbolCandidates reuses immutable name and qualified-name indexes for
+// sparse, kind-filtered exact searches. Original source spellings and dense
+// matches retain the full-scan path to preserve alias and ordering semantics.
+func (model *ProjectModel) exactSymbolCandidates(query string) ([]*projectSymbolRecord, bool) {
+	if model.hasSourceSpelling {
+		return nil, false
+	}
+	key := normalizeProjectReference(query)
+	if key == "" {
+		return nil, false
+	}
+	lowerKey := strings.ToLower(key)
+	seenLanguages := make(map[string]struct{})
+	seenRecords := make(map[*projectSymbolRecord]struct{})
+	const maxIndexedCandidates = 256
+	for _, pathKey := range model.fileOrder {
+		language := model.files[pathKey].languageID
+		if _, seen := seenLanguages[language]; seen {
+			continue
+		}
+		seenLanguages[language] = struct{}{}
+		keys := [2]string{language + "\x00" + key, language + "\x00" + lowerKey}
+		for index, lookup := range keys {
+			if index == 1 && keys[0] == keys[1] {
+				continue
+			}
+			for _, records := range [][]*projectSymbolRecord{model.symbolsByName[lookup], model.symbolsByQualified[lookup]} {
+				if len(records) > maxIndexedCandidates {
+					return nil, false
+				}
+				for _, record := range records {
+					seenRecords[record] = struct{}{}
+					if len(seenRecords) > maxIndexedCandidates {
+						return nil, false
+					}
+				}
+			}
+		}
+	}
+	candidates := make([]*projectSymbolRecord, 0, len(seenRecords))
+	for record := range seenRecords {
+		candidates = append(candidates, record)
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		left, right := candidates[i], candidates[j]
+		if left.pathKey != right.pathKey {
+			return left.pathKey < right.pathKey
+		}
+		if left.entity.QualifiedName != right.entity.QualifiedName {
+			return left.entity.QualifiedName < right.entity.QualifiedName
+		}
+		return left.entity.SymbolID < right.entity.SymbolID
+	})
+	return candidates, true
+}
+
+func projectSearchMatchForSymbol(record projectSymbolRecord) ProjectSearchMatch {
+	return ProjectSearchMatch{
+		Path: record.entity.Path, Language: record.entity.Language, Name: record.symbol.Name,
+		Kind: record.symbol.Kind, QualifiedName: record.symbol.QualifiedName, Range: record.symbol.NameRange,
+		SymbolID: record.entity.SymbolID, SourceFingerprint: record.entity.SourceFingerprint, Evidence: record.symbol.Evidence,
+	}
 }
 
 // QueryRelations executes one bounded project relationship query.
