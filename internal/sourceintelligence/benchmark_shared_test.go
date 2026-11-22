@@ -726,6 +726,66 @@ func BenchmarkProjectContextMultiPathGrowth(b *testing.B) {
 	}
 }
 
+// BenchmarkProjectContextRelatedMultiPath measures the conservative
+// dependency-aware route with real imports and nested method symbols.
+func BenchmarkProjectContextRelatedMultiPath(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, fileCount := range []int{2, 4} {
+		facts := make([]ProjectFileFacts, 0, fileCount)
+		selectors := make([]ProjectSelector, 0, fileCount)
+		for fileIndex := 0; fileIndex < fileCount; fileIndex++ {
+			var source strings.Builder
+			if fileIndex > 0 {
+				fmt.Fprintf(&source, "import { Item%d } from \"./file%d\";\n", fileIndex-1, fileIndex-1)
+			}
+			fmt.Fprintf(&source, "export class Item%d { work() {} }\n", fileIndex)
+			for symbolIndex := 0; symbolIndex < 64; symbolIndex++ {
+				fmt.Fprintf(&source, "export class Flat%d_%03d {}\n", fileIndex, symbolIndex)
+			}
+			path := fmt.Sprintf("project/benchmark/related/file%d.ts", fileIndex)
+			item := benchmarkAnalyzerFacts(b, TypeScriptAnalyzer{}, path, source.String())
+			facts = append(facts, item)
+			selectors = append(selectors, ProjectSelector{Kind: ProjectSelectorPath, Path: item.Path, SourceFingerprint: item.SourceFingerprint})
+		}
+		model, err := BuildProjectModel(context.Background(), registry, facts, ProjectResolverLimits{
+			MaxFiles: fileCount, MaxSymbols: 2048, MaxDependencies: 2048,
+			MaxReferences: 2048, MaxCandidatesPerResolution: 64,
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(model.dependencies) == 0 {
+			b.Fatal("expected actual TypeScript import dependencies")
+		}
+		nested := false
+		for _, records := range model.symbolsByFile {
+			for _, record := range records {
+				nested = nested || record.symbol.ParentID != ""
+			}
+		}
+		if !nested {
+			b.Fatal("expected nested TypeScript methods")
+		}
+		options := ProjectContextOptions{BudgetBytes: 1 << 20, MaxItems: 24, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+		if _, eligible, err := model.planFlatMultiPathContext(context.Background(), selectors, options); eligible || err != nil {
+			b.Fatalf("related paths cannot use compact planner: eligible=%t err=%v", eligible, err)
+		}
+		b.Run(fmt.Sprintf("files-%d/general-related", fileCount), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				plan, err := model.PlanContext(context.Background(), selectors, options)
+				if err != nil || len(plan.Candidates) == 0 {
+					b.Fatalf("dependency-aware context failed: candidates=%d err=%v", len(plan.Candidates), err)
+				}
+			}
+		})
+	}
+}
+
 // BenchmarkSharedProjectResolverDenseGoScaling separates analysis, immutable
 // model construction, and exact lookup for many declarations in one Go file.
 func BenchmarkSharedProjectResolverDenseGoScaling(b *testing.B) {

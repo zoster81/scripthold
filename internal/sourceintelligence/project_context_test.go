@@ -1091,6 +1091,60 @@ func TestProjectContextFlatMultiPathMatchesGeneral(t *testing.T) {
 	}
 }
 
+// Real imports and nested methods are not independent flat roots. Even
+// multi-path queries must use the general dependency-aware context planner.
+func TestProjectContextRelatedMultiPathFallsBackToGeneral(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fileCount := range []int{2, 4} {
+		t.Run(fmt.Sprintf("files-%d", fileCount), func(t *testing.T) {
+			facts := make([]ProjectFileFacts, 0, fileCount)
+			selectors := make([]ProjectSelector, 0, fileCount)
+			for i := 0; i < fileCount; i++ {
+				var source strings.Builder
+				if i > 0 {
+					fmt.Fprintf(&source, "import { Item%d } from \"./file%d\";\n", i-1, i-1)
+				}
+				fmt.Fprintf(&source, "export class Item%d { work() {} }\n", i)
+				fact := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join("project", "related", fmt.Sprintf("file%d.ts", i)), source.String())
+				facts = append(facts, fact)
+				selectors = append(selectors, queryPathSelector(fact))
+			}
+			model, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(model.dependencies) == 0 {
+				t.Fatal("expected actual analyzed TypeScript import dependencies")
+			}
+			hasNested := false
+			for _, records := range model.symbolsByFile {
+				for _, record := range records {
+					hasNested = hasNested || record.symbol.ParentID != ""
+				}
+			}
+			if !hasNested {
+				t.Fatal("expected analyzed nested TypeScript method symbols")
+			}
+			for _, budget := range []int{64, 4096, 1 << 20} {
+				options := ProjectContextOptions{MaxItems: 24, MaxDepth: 2, BudgetBytes: budget, BodyPolicy: ProjectContextSignaturesOnly}
+				if _, eligible, err := model.planFlatMultiPathContext(context.Background(), selectors, options); eligible || err != nil {
+					t.Fatalf("related paths must use general planner budget=%d eligible=%t err=%v", budget, eligible, err)
+				}
+				wantModel := *model
+				wantModel.referencesByTargetIndices = map[string][]int{"force-general": nil}
+				want, wantErr := wantModel.PlanContext(context.Background(), selectors, options)
+				got, gotErr := model.PlanContext(context.Background(), selectors, options)
+				if operation.KindOf(gotErr) != operation.KindOf(wantErr) || !reflect.DeepEqual(got, want) {
+					t.Fatalf("related multi-path plan mismatch budget=%d err=%v generalErr=%v got=%+v want=%+v", budget, gotErr, wantErr, got, want)
+				}
+			}
+		})
+	}
+}
+
 // Sorting may inspect model-owned declaration offsets without allocating
 // cloned signature/body ranges or mutating any retained symbol.
 func TestProjectContextSeedSortAvoidsOffsetClone(t *testing.T) {
