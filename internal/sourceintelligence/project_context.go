@@ -190,7 +190,7 @@ func (model *ProjectModel) planFlatPathContext(ctx context.Context, selector Pro
 		return ProjectContextPlan{}, false, nil
 	}
 	records := model.symbolsByFile[pathKey]
-	if len(records) <= options.MaxItems*4 ||
+	if len(records) <= options.MaxItems*3 ||
 		len(model.references) != 0 || len(model.referencesByTarget) != 0 ||
 		len(model.referencesByTargetIndices) != 0 ||
 		len(model.dependenciesBySource[pathKey]) != 0 ||

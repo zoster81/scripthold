@@ -12,7 +12,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Changed
 
-- Guarded large flat-file `source_query.context` plans now use the compact selection path for item limits up to 256, avoiding full symbol-record copies while retaining exact budget, ordering, truncation, and cancellation behavior.
+- Guarded flat-file `source_query.context` plans now use the compact selection path for item limits up to 256 when the file has more than three times as many declarations as requested items, avoiding full symbol-record copies for moderately wide files while retaining exact budget, ordering, truncation, and cancellation behavior.
 - Broad single-file `source_query.context` plans with repeated direct imports reserve request-local candidate space from distinct top-level dependency declarations when item and byte budgets are generous. Smaller and constrained plans keep dynamic growth; symbol selection, limits, and public outputs are unchanged.
 - Bounded flat-file context plans stop scanning nonrequired roots only after the item limit is conclusively exceeded, preserving byte-budget handling, truncation, and cancellation while reducing unnecessary work.
 - Single-file flat `source_query.context` plans reuse model declaration order when offsets are already monotonic, avoiding temporary index allocation and sorting; out-of-order files retain the existing indexed sort and identical context output.

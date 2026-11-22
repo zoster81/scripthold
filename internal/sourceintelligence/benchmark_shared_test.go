@@ -571,7 +571,7 @@ func BenchmarkProjectContextFlatPath(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	for _, count := range []int{128, 2048} {
+	for _, count := range []int{128, 512, 1024, 2048} {
 		var source strings.Builder
 		for index := 0; index < count; index++ {
 			fmt.Fprintf(&source, "export class Flat%05d {}\n", index)
@@ -652,7 +652,7 @@ func BenchmarkProjectContextFlatPath(b *testing.B) {
 		})
 		// A broad context with no dependencies must not spend disproportionate
 		// work selecting roots, across bounded item limits.
-		for _, maxItems := range []int{128, 256} {
+		for _, maxItems := range []int{64, 128, 256} {
 			b.Run(fmt.Sprintf("symbols-%d/plan-path-broad-%d", count, maxItems), func(b *testing.B) {
 				wideOptions := options
 				wideOptions.MaxItems = maxItems

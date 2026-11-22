@@ -925,6 +925,61 @@ func TestProjectContextBroadFlatPathMatchesGeneral(t *testing.T) {
 	}
 }
 
+// Moderately wide flat files should retain exactly the general planner's
+// ordering, budget and truncation behavior when the compact gate is lowered.
+func TestProjectContextMidrangeFlatPathMatchesGeneral(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		count, maxItems int
+	}{{512, 128}, {1024, 256}} {
+		t.Run(fmt.Sprintf("symbols-%d/items-%d", tc.count, tc.maxItems), func(t *testing.T) {
+			var source strings.Builder
+			for index := 0; index < tc.count; index++ {
+				fmt.Fprintf(&source, "export class Flat%05d {}\n", index)
+			}
+			document := sourceDocumentForScanner(source.String())
+			document.Path = filepath.Join("project", "context", fmt.Sprintf("midrange-flat-%d.ts", tc.count))
+			document.SourceFingerprint = benchmarkDigest(document.Text)
+			analyzed, err := (TypeScriptAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 8192))
+			if err != nil || !analyzed.Analysis.CoverageComplete {
+				t.Fatalf("analyze midrange flat context: %v", err)
+			}
+			facts := ProjectFileFacts{Path: document.Path, Language: "typescript", SourceFingerprint: document.SourceFingerprint, Analysis: analyzed}
+			model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, ProjectResolverLimits{
+				MaxFiles: 1, MaxSymbols: 8192, MaxDependencies: 8192, MaxReferences: 8192, MaxCandidatesPerResolution: 64,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			selector := queryPathSelector(facts)
+			general := *model
+			general.referencesByTargetIndices = map[string][]int{"unused-ref": nil}
+			for _, budget := range []int{64, 4096, 1 << 20} {
+				options := ProjectContextOptions{MaxItems: tc.maxItems, MaxDepth: 2, BudgetBytes: budget, BodyPolicy: ProjectContextSignaturesOnly}
+				want, wantErr := general.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+				got, eligible, gotErr := model.planFlatPathContext(context.Background(), selector, options)
+				if !eligible || operation.KindOf(gotErr) != operation.KindOf(wantErr) || !reflect.DeepEqual(got, want) {
+					t.Fatalf("midrange plan items=%d budget=%d eligible=%t err=%v generalErr=%v got=%+v want=%+v", tc.maxItems, budget, eligible, gotErr, wantErr, got, want)
+				}
+				public, publicErr := model.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+				if operation.KindOf(publicErr) != operation.KindOf(wantErr) || !reflect.DeepEqual(public, want) {
+					t.Fatalf("public midrange context differs from general plan items=%d budget=%d err=%v generalErr=%v", tc.maxItems, budget, publicErr, wantErr)
+				}
+			}
+			if tc.count == 512 {
+				// The conservative gate must keep smaller ratios on the general path.
+				options := ProjectContextOptions{MaxItems: 256, MaxDepth: 2, BudgetBytes: 1 << 20, BodyPolicy: ProjectContextSignaturesOnly}
+				if _, eligible, err := model.planFlatPathContext(context.Background(), selector, options); eligible || err != nil {
+					t.Fatalf("ratio-two flat path should stay general: eligible=%t err=%v", eligible, err)
+				}
+			}
+		})
+	}
+}
+
 // Sorting may inspect model-owned declaration offsets without allocating
 // cloned signature/body ranges or mutating any retained symbol.
 func TestProjectContextSeedSortAvoidsOffsetClone(t *testing.T) {
