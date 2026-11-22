@@ -45,4 +45,4 @@ A preview remains process-local, one-shot and subject to its original expiry and
 
 Update client tool discovery after installing 4.0. Calls using removed tool names receive the normal MCP unknown-tool error; 4.0 does not register compatibility aliases. This is an intentional major-version breaking change. Do not assume an older client's cached tool list will continue working.
 
-See [TOOLS.md](../TOOLS.md#confirm_verified_operation) for the command, [ARCHITECTURE.md](ARCHITECTURE.md) for mutation boundaries, and [ROADMAP.md](ROADMAP.md) for the remaining qualification before release.
+See [TOOLS.md](../TOOLS.md#confirm_verified_operation) for the command, [ARCHITECTURE.md](ARCHITECTURE.md) for mutation boundaries, and [ROADMAP.md](ROADMAP.md) for current development priorities and qualification boundaries.
