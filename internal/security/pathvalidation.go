@@ -64,39 +64,72 @@ func pathContains(parent, child string) bool {
 	return pathHasPrefix(child, prefix)
 }
 
-func IsPathWithinAllowedDirectories(absolutePath string, allowedDirs []string) bool {
-	if absolutePath == "" || len(allowedDirs) == 0 {
+// AllowedDirectoryMatcher normalizes immutable allowed roots once for repeated
+// containment checks. It never caches a candidate's resolved path or filesystem
+// identity; callers must still resolve each candidate at the point of use.
+type AllowedDirectoryMatcher struct {
+	roots []string
+}
+
+func NewAllowedDirectoryMatcher(allowedDirs []string) AllowedDirectoryMatcher {
+	matcher := AllowedDirectoryMatcher{roots: make([]string, len(allowedDirs))}
+	for index, allowedDir := range allowedDirs {
+		matcher.roots[index] = normalizePath(filepath.Clean(allowedDir))
+	}
+	return matcher
+}
+
+func (matcher AllowedDirectoryMatcher) contains(absolutePath string) bool {
+	if absolutePath == "" || len(matcher.roots) == 0 || strings.Contains(absolutePath, "\x00") {
 		return false
 	}
-
-	if strings.Contains(absolutePath, "\x00") {
-		return false
-	}
-
 	normalized := filepath.Clean(absolutePath)
 	if !filepath.IsAbs(normalized) {
 		return false
 	}
-
 	normalized = normalizePath(normalized)
-
-	for _, allowedDir := range allowedDirs {
-		cleanAllowed := normalizePath(filepath.Clean(allowedDir))
-
-		if pathsEqual(normalized, cleanAllowed) {
-			return true
-		}
-
-		separator := string(filepath.Separator)
-		allowedPrefix := cleanAllowed
-		if !strings.HasSuffix(allowedPrefix, separator) {
-			allowedPrefix += separator
-		}
-		if pathHasPrefix(normalized, allowedPrefix) {
+	for _, root := range matcher.roots {
+		if pathsEqual(normalized, root) || pathContains(root, normalized) {
 			return true
 		}
 	}
+	return false
+}
 
+// ResolvePathSafe always freshly resolves the candidate, even when allowed
+// roots were pre-normalized for an individual traversal.
+func (matcher AllowedDirectoryMatcher) ResolvePathSafe(path string) (string, bool) {
+	if path == "" || len(matcher.roots) == 0 {
+		return "", false
+	}
+	resolved, err := resolveExistingPath(path)
+	if err != nil {
+		return "", false
+	}
+	resolved = filepath.Clean(resolved)
+	if !matcher.contains(resolved) {
+		return "", false
+	}
+	return resolved, true
+}
+
+// IsPathWithinAllowedDirectories remains a one-off check: normalize roots
+// on demand and stop at the first match, without allocating a matcher.
+func IsPathWithinAllowedDirectories(absolutePath string, allowedDirs []string) bool {
+	if absolutePath == "" || len(allowedDirs) == 0 || strings.Contains(absolutePath, "\x00") {
+		return false
+	}
+	normalized := filepath.Clean(absolutePath)
+	if !filepath.IsAbs(normalized) {
+		return false
+	}
+	normalized = normalizePath(normalized)
+	for _, allowedDir := range allowedDirs {
+		root := normalizePath(filepath.Clean(allowedDir))
+		if pathsEqual(normalized, root) || pathContains(root, normalized) {
+			return true
+		}
+	}
 	return false
 }
 

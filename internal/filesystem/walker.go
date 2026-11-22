@@ -63,7 +63,8 @@ func Walk(ctx context.Context, root string, options WalkOptions, visitor Visitor
 		return errors.New("resolved allowed directories are required")
 	}
 
-	resolvedRoot, safe := security.ResolvePathSafe(root, options.ResolvedAllowedDirs)
+	matcher := security.NewAllowedDirectoryMatcher(options.ResolvedAllowedDirs)
+	resolvedRoot, safe := matcher.ResolvePathSafe(root)
 	if !safe {
 		if _, err := os.Stat(root); err != nil {
 			return handleWalkError(options, root, 0, err)
@@ -71,19 +72,19 @@ func Walk(ctx context.Context, root string, options WalkOptions, visitor Visitor
 		return handleWalkError(options, root, 0, fmt.Errorf("root path resolves outside allowed directories: %s", root))
 	}
 
-	err := walkDirectory(ctx, resolvedRoot, "", 0, options, nil, visitor)
+	err := walkDirectory(ctx, resolvedRoot, "", 0, options, matcher, nil, visitor)
 	if errors.Is(err, errWalkStopped) {
 		return nil
 	}
 	return err
 }
 
-func walkDirectory(ctx context.Context, dirPath, relativeDir string, depth int, options WalkOptions, scopes []ignoreScope, visitor Visitor) error {
+func walkDirectory(ctx context.Context, dirPath, relativeDir string, depth int, options WalkOptions, matcher security.AllowedDirectoryMatcher, scopes []ignoreScope, visitor Visitor) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 
-	resolvedDir, safe := security.ResolvePathSafe(dirPath, options.ResolvedAllowedDirs)
+	resolvedDir, safe := matcher.ResolvePathSafe(dirPath)
 	if !safe {
 		if _, err := os.Stat(dirPath); err != nil {
 			return handleWalkError(options, dirPath, depth, err)
@@ -117,7 +118,7 @@ func walkDirectory(ctx context.Context, dirPath, relativeDir string, depth int, 
 		}
 
 		childPath := filepath.Join(resolvedDir, dirEntry.Name())
-		resolvedChild, safe := security.ResolvePathSafe(childPath, options.ResolvedAllowedDirs)
+		resolvedChild, safe := matcher.ResolvePathSafe(childPath)
 		if !safe {
 			if options.OnUnsafe != nil {
 				if unsafeErr := options.OnUnsafe(childPath, depth+1); unsafeErr != nil {
@@ -165,7 +166,7 @@ func walkDirectory(ctx context.Context, dirPath, relativeDir string, depth int, 
 		if options.MaxDepth > 0 && entry.Depth >= options.MaxDepth {
 			continue
 		}
-		if err := walkDirectory(ctx, resolvedChild, relativePath, entry.Depth, options, currentScopes, visitor); err != nil {
+		if err := walkDirectory(ctx, resolvedChild, relativePath, entry.Depth, options, matcher, currentScopes, visitor); err != nil {
 			return err
 		}
 	}

@@ -8,6 +8,37 @@ import (
 	"testing"
 )
 
+func TestPreparedAllowedDirectoryMatcherPreservesResolvedSecurity(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	nested := filepath.Join(root, "nested")
+	if err := os.Mkdir(nested, 0700); err != nil {
+		t.Fatal(err)
+	}
+	insideFile := filepath.Join(nested, "file.txt")
+	if err := os.WriteFile(insideFile, []byte("safe"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	outsideFile := filepath.Join(outside, "file.txt")
+	if err := os.WriteFile(outsideFile, []byte("outside"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	sibling := root + "-lookalike"
+	if err := os.Mkdir(sibling, 0700); err != nil {
+		t.Fatal(err)
+	}
+	roots := []string{root}
+	matcher := NewAllowedDirectoryMatcher(roots)
+	roots[0] = outside // A request-local matcher must not borrow mutable caller roots.
+	for _, path := range []string{root, insideFile, nested, outside, outsideFile, sibling, "", "relative", insideFile + "\x00bad"} {
+		wantPath, wantSafe := ResolvePathSafe(path, []string{root})
+		gotPath, gotSafe := matcher.ResolvePathSafe(path)
+		if gotSafe != wantSafe || gotPath != wantPath {
+			t.Errorf("path %q: prepared (%q, %t), ordinary (%q, %t)", path, gotPath, gotSafe, wantPath, wantSafe)
+		}
+	}
+}
+
 func TestIsPathWithinAllowedDirectories_BasicCases(t *testing.T) {
 	// Skip on Windows - these tests use Unix paths
 	// The Windows-specific tests cover the same logic with Windows paths
