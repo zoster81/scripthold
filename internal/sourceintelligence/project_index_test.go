@@ -128,6 +128,15 @@ func TestProjectIndexReusesOnlyUnchangedParsedFacts(t *testing.T) {
 	if calls[aPath] != 1 || calls[bPath] != 2 || changed.Stats.AnalyzedFiles != 1 || changed.Stats.ReusedFiles != 1 {
 		t.Fatalf("changed calls/stats = %#v / %+v", calls, changed.Stats)
 	}
+	unchangedKey, changedKey := projectPathKey(aPath), projectPathKey(bPath)
+	oldA, currentA := first.Model.symbolsByFile[unchangedKey], changed.Model.symbolsByFile[unchangedKey]
+	oldB, currentB := first.Model.symbolsByFile[changedKey], changed.Model.symbolsByFile[changedKey]
+	if len(oldA) == 0 || len(currentA) == 0 || &oldA[0] != &currentA[0] {
+		t.Fatal("unchanged source symbols were rebuilt instead of reusing immutable records")
+	}
+	if len(oldB) == 0 || len(currentB) == 0 || &oldB[0] == &currentB[0] {
+		t.Fatal("changed source reused stale symbol records")
+	}
 
 	configurationChanged := refresh(indexDigest("analysis-v2"), []ProjectIndexFileSnapshot{
 		{Path: aPath, SourceFingerprint: aV1.SourceFingerprint},
@@ -138,6 +147,52 @@ func TestProjectIndexReusesOnlyUnchangedParsedFacts(t *testing.T) {
 	}
 	if calls[aPath] != 2 || calls[bPath] != 3 || configurationChanged.Stats.AnalyzedFiles != 2 || configurationChanged.Stats.ReusedFiles != 0 {
 		t.Fatalf("configuration calls/stats = %#v / %+v", calls, configurationChanged.Stats)
+	}
+	configurationA := configurationChanged.Model.symbolsByFile[unchangedKey]
+	if len(configurationA) == 0 || &currentA[0] == &configurationA[0] {
+		t.Fatal("analysis configuration change retained prior generation symbol records")
+	}
+}
+
+func TestProjectIndexNewRegistryInstanceInvalidatesCurrentGeneration(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptors := make([]LanguageDescriptor, 0, len(registry.byID))
+	for _, descriptor := range registry.byID {
+		descriptors = append(descriptors, descriptor)
+	}
+	otherRegistry, err := NewLanguageRegistry(descriptors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join("project", "different-registry.ts")
+	facts := indexFacts(t, registry, path, "typescript", "export class Item {}\n")
+	manager, err := NewProjectIndexManager(ProjectIndexManagerLimits{MaxProjects: 1, MaxGenerations: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	options := ProjectIndexRefreshOptions{
+		ScopeFingerprint: indexDigest("registry-scope"), AnalysisFingerprint: indexDigest("same-config"),
+		Snapshots:      []ProjectIndexFileSnapshot{{Path: path, SourceFingerprint: facts.SourceFingerprint}},
+		ResolverLimits: indexResolverLimits(),
+		Analyze: func(_ context.Context, snapshot ProjectIndexFileSnapshot) (ProjectIndexAnalysisResult, error) {
+			calls++
+			return ProjectIndexAnalysisResult{ObservedFingerprint: snapshot.SourceFingerprint, Facts: &facts}, nil
+		},
+	}
+	first, err := manager.Refresh(context.Background(), registry, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.Refresh(context.Background(), otherRegistry, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Evidence.Generation == second.Evidence.Generation || calls != 2 || second.Stats.ReusedFiles != 0 {
+		t.Fatalf("registry identity change reused old generation: first=%+v second=%+v calls=%d", first.Evidence, second.Evidence, calls)
 	}
 }
 
@@ -383,6 +438,14 @@ func TestProjectIndexRebuildsRelationsAfterIncrementalChange(t *testing.T) {
 	second := refresh(aV2, true)
 	if got := second.Model.Dependencies(aPath); len(got) != 0 {
 		t.Fatalf("changed generation retained stale dependency = %+v", got)
+	}
+	if got := first.Model.Dependencies(aPath); len(got) != 1 || len(got[0].Targets) != 1 || got[0].Targets[0].Path != bPath {
+		t.Fatalf("older generation was changed by incremental refresh: %+v", got)
+	}
+	bKey := projectPathKey(bPath)
+	oldB, currentB := first.Model.symbolsByFile[bKey], second.Model.symbolsByFile[bKey]
+	if len(oldB) == 0 || len(currentB) == 0 || &oldB[0] != &currentB[0] {
+		t.Fatal("unchanged dependency target lost its immutable symbol record backing")
 	}
 	if calls[aPath] != 2 || calls[bPath] != 1 || second.Stats.AnalyzedFiles != 1 || second.Stats.ReusedFiles != 1 {
 		t.Fatalf("incremental relation refresh calls=%+v stats=%+v", calls, second.Stats)

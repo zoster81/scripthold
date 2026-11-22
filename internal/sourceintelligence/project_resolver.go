@@ -152,6 +152,13 @@ const defaultProjectResolutionCandidates = 64
 // BuildProjectModel constructs deterministic symbol tables, dependency
 // adjacency, and resolved structural references from normalized analyzer facts.
 func BuildProjectModel(ctx context.Context, registry *LanguageRegistry, input []ProjectFileFacts, limits ProjectResolverLimits) (*ProjectModel, error) {
+	return buildProjectModelWithReusableRecords(ctx, registry, input, limits, nil)
+}
+
+// Reuse is restricted to sorted, immutable records from fingerprint-identical
+// files in the preceding generation. Global lookup and relationship state is
+// always reconstructed for the new complete project snapshot.
+func buildProjectModelWithReusableRecords(ctx context.Context, registry *LanguageRegistry, input []ProjectFileFacts, limits ProjectResolverLimits, reusable map[string][]projectSymbolRecord) (*ProjectModel, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -235,7 +242,7 @@ func BuildProjectModel(ctx context.Context, registry *LanguageRegistry, input []
 		model.fileOrder = append(model.fileOrder, pathKey)
 	}
 
-	if err := model.buildSymbolTables(ctx, &descriptors); err != nil {
+	if err := model.buildSymbolTables(ctx, &descriptors, reusable); err != nil {
 		return nil, err
 	}
 	if err := model.buildDependencies(ctx, &descriptors, maxCandidates); err != nil {
@@ -247,40 +254,46 @@ func BuildProjectModel(ctx context.Context, registry *LanguageRegistry, input []
 	return model, nil
 }
 
-func (model *ProjectModel) buildSymbolTables(ctx context.Context, descriptors *projectLanguageDescriptorCache) error {
+func (model *ProjectModel) buildSymbolTables(ctx context.Context, descriptors *projectLanguageDescriptorCache, reusable map[string][]projectSymbolRecord) error {
 	for _, pathKey := range model.fileOrder {
 		file := model.files[pathKey]
-		records := make([]projectSymbolRecord, 0, len(file.facts.Analysis.Analysis.Symbols))
-		for _, symbol := range file.facts.Analysis.Analysis.Symbols {
-			if err := ctx.Err(); err != nil {
-				return operation.Wrap(operation.KindCancelled, "build_project_symbol_tables", file.facts.Path, err)
-			}
-			languageID := strings.TrimSpace(symbol.Language)
-			if languageID == "" {
-				languageID = file.languageID
-			}
-			descriptor, ok := descriptors.resolve(languageID)
-			if !ok && file.languageID == "classic-asp" &&
-				symbol.Analyzer == string(AnalyzerClassicASP) && languageID == "jscript" {
-				// Classic ASP exposes the original embedded language spelling.
-				// Resolve its syntax through the registered JavaScript provider
-				// without rewriting the source symbol or its safe selector.
-				descriptor, ok = descriptors.resolve("javascript")
-			}
-			if !ok {
-				continue
-			}
-			entity := relationEntityForSymbol(symbol, file.facts.SourceFingerprint)
-			records = append(records, projectSymbolRecord{
-				symbol: cloneNormalizedSymbol(symbol), entity: entity, pathKey: pathKey, languageID: descriptor.ID,
-				qualifiedKey: projectSymbolLookupKey(descriptor, symbol.QualifiedName),
-				nameKey:      projectSymbolLookupKey(descriptor, symbol.Name),
-			})
+		if err := ctx.Err(); err != nil {
+			return operation.Wrap(operation.KindCancelled, "build_project_symbol_tables", file.facts.Path, err)
 		}
+		records, borrowed := reusable[pathKey]
+		if !borrowed {
+			records = make([]projectSymbolRecord, 0, len(file.facts.Analysis.Analysis.Symbols))
+			for _, symbol := range file.facts.Analysis.Analysis.Symbols {
+				if err := ctx.Err(); err != nil {
+					return operation.Wrap(operation.KindCancelled, "build_project_symbol_tables", file.facts.Path, err)
+				}
+				languageID := strings.TrimSpace(symbol.Language)
+				if languageID == "" {
+					languageID = file.languageID
+				}
+				descriptor, ok := descriptors.resolve(languageID)
+				if !ok && file.languageID == "classic-asp" &&
+					symbol.Analyzer == string(AnalyzerClassicASP) && languageID == "jscript" {
+					// Classic ASP exposes the original embedded language spelling.
+					// Resolve its syntax through the registered JavaScript provider
+					// without rewriting the source symbol or its safe selector.
+					descriptor, ok = descriptors.resolve("javascript")
+				}
+				if !ok {
+					continue
+				}
+				entity := relationEntityForSymbol(symbol, file.facts.SourceFingerprint)
+				records = append(records, projectSymbolRecord{
+					symbol: cloneNormalizedSymbol(symbol), entity: entity, pathKey: pathKey, languageID: descriptor.ID,
+					qualifiedKey: projectSymbolLookupKey(descriptor, symbol.QualifiedName),
+					nameKey:      projectSymbolLookupKey(descriptor, symbol.Name),
+				})
+			}
 
-		// Sort before publishing pointers: sorting after indexing would move values
-		// inside the backing array and make index keys reference the wrong records.
-		sortProjectSymbolRecords(records)
+			// Sort before publishing pointers: sorting after indexing would move values
+			// inside the backing array and make index keys reference the wrong records.
+			sortProjectSymbolRecords(records)
+		}
 		model.symbolsByFile[pathKey] = records
 		if len(records) >= 64 {
 			// Record the first sorted occurrence, preserving duplicate-ID selectors.
@@ -301,6 +314,11 @@ func (model *ProjectModel) buildSymbolTables(ctx context.Context, descriptors *p
 			model.symbolIndicesByFile[pathKey] = byID
 		}
 		for index := range records {
+			if index%256 == 0 {
+				if err := ctx.Err(); err != nil {
+					return operation.Wrap(operation.KindCancelled, "build_project_symbol_tables", file.facts.Path, err)
+				}
+			}
 			record := &records[index]
 			if record.symbol.sourceSpelling != "" {
 				model.hasSourceSpelling = true
