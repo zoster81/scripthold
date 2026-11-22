@@ -221,7 +221,19 @@ func (model *ProjectModel) appendContextSeedsForSelector(seeds []projectContextS
 	}
 	records := model.contextRootSymbols(pathKey)
 	if cap(seeds)-len(seeds) < len(records) {
-		grown := make([]projectContextSeed, len(seeds), len(seeds)+len(records))
+		needed := len(seeds) + len(records)
+		capacity := needed
+		// Amortize repeated path selectors without retaining scratch between
+		// requests. Bound speculative reserve relative to the latest path so
+		// a tiny file after a large file cannot double memory consumption.
+		if prior := cap(seeds); prior > 0 && prior <= int(^uint(0)>>1)/2 && prior*2 > needed {
+			spare := prior*2 - needed
+			if len(records) <= int(^uint(0)>>1)/4 && spare > 4*len(records) {
+				spare = 4 * len(records)
+			}
+			capacity = needed + spare
+		}
+		grown := make([]projectContextSeed, len(seeds), capacity)
 		copy(grown, seeds)
 		seeds = grown
 	}

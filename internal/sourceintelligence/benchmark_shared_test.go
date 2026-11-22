@@ -653,6 +653,47 @@ func BenchmarkProjectContextFlatPath(b *testing.B) {
 	}
 }
 
+// BenchmarkProjectContextMultiPathGrowth isolates request-local seed buffer
+// growth on several independent, flat source files.
+func BenchmarkProjectContextMultiPathGrowth(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, fileCount := range []int{8, 16} {
+		facts := make([]ProjectFileFacts, 0, fileCount)
+		selectors := make([]ProjectSelector, 0, fileCount)
+		for fileIndex := 0; fileIndex < fileCount; fileIndex++ {
+			var source strings.Builder
+			for symbolIndex := 0; symbolIndex < 128; symbolIndex++ {
+				fmt.Fprintf(&source, "export class F%02dS%03d {}\n", fileIndex, symbolIndex)
+			}
+			path := fmt.Sprintf("project/benchmark/multipath/f%02d.ts", fileIndex)
+			item := benchmarkAnalyzerFacts(b, TypeScriptAnalyzer{}, path, source.String())
+			facts = append(facts, item)
+			selectors = append(selectors, ProjectSelector{Kind: ProjectSelectorPath, Path: item.Path, SourceFingerprint: item.SourceFingerprint})
+		}
+		model, err := BuildProjectModel(context.Background(), registry, facts, ProjectResolverLimits{
+			MaxFiles: fileCount, MaxSymbols: fileCount * 256, MaxDependencies: 4096,
+			MaxReferences: 4096, MaxCandidatesPerResolution: 64,
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+		options := ProjectContextOptions{BudgetBytes: 1 << 20, MaxItems: 24, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+		b.Run(fmt.Sprintf("files-%d/plan-context", fileCount), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				plan, err := model.PlanContext(context.Background(), selectors, options)
+				if err != nil || len(plan.Candidates) != options.MaxItems || !plan.Truncated {
+					b.Fatalf("multipath context changed: candidates=%d truncated=%t err=%v", len(plan.Candidates), plan.Truncated, err)
+				}
+			}
+		})
+	}
+}
+
 // BenchmarkSharedProjectResolverDenseGoScaling separates analysis, immutable
 // model construction, and exact lookup for many declarations in one Go file.
 func BenchmarkSharedProjectResolverDenseGoScaling(b *testing.B) {

@@ -521,6 +521,96 @@ func TestProjectContextNoReferencesRetainsReverseDependents(t *testing.T) {
 	}
 }
 
+// Appending one tiny file after a large file must not reserve another
+// large record buffer solely to preserve amortized growth.
+func TestProjectContextAppendPathSeedsBoundsSkewedGrowth(t *testing.T) {
+	const largeCount = 2048
+	model := &ProjectModel{
+		files: map[string]projectFileRecord{
+			"large.ts": {facts: ProjectFileFacts{Path: "large.ts", SourceFingerprint: "fingerprint"}},
+			"tiny.ts":  {facts: ProjectFileFacts{Path: "tiny.ts", SourceFingerprint: "fingerprint"}},
+		},
+		symbolsByFile: make(map[string][]projectSymbolRecord),
+	}
+	records := make([]projectSymbolRecord, largeCount)
+	for i := range records {
+		id := fmt.Sprintf("sym-%04d", i)
+		records[i] = projectSymbolRecord{
+			pathKey: "large.ts",
+			symbol:  NormalizedSymbol{ID: id},
+			entity:  RelationEntity{Path: "large.ts", QualifiedName: id, SymbolID: id},
+		}
+	}
+	model.symbolsByFile["large.ts"] = records
+	model.symbolsByFile["tiny.ts"] = []projectSymbolRecord{{
+		pathKey: "tiny.ts",
+		symbol:  NormalizedSymbol{ID: "tiny"},
+		entity:  RelationEntity{Path: "tiny.ts", QualifiedName: "tiny", SymbolID: "tiny"},
+	}}
+	large := ProjectSelector{Kind: ProjectSelectorPath, Path: "large.ts", SourceFingerprint: "fingerprint"}
+	tiny := ProjectSelector{Kind: ProjectSelectorPath, Path: "tiny.ts", SourceFingerprint: "fingerprint"}
+	seeds, err := model.appendContextSeedsForSelector(nil, large)
+	if err != nil || len(seeds) != largeCount {
+		t.Fatalf("large seeds: %d err=%v", len(seeds), err)
+	}
+	seeds, err = model.appendContextSeedsForSelector(seeds, tiny)
+	if err != nil || len(seeds) != largeCount+1 || seeds[largeCount].record.symbol.ID != "tiny" {
+		t.Fatalf("skewed seeds: %d err=%v", len(seeds), err)
+	}
+	if cap(seeds) > len(seeds)+4 {
+		t.Fatalf("skewed request reserved an unnecessary large buffer: len=%d cap=%d", len(seeds), cap(seeds))
+	}
+}
+
+// A multi-file request should grow its temporary seed buffer amortized,
+// without changing the order, identity, or source-fingerprint checks.
+func TestProjectContextAppendPathSeedsAmortizesGrowth(t *testing.T) {
+	const fileCount, perFile = 4, 4
+	model := &ProjectModel{
+		files:         make(map[string]projectFileRecord, fileCount),
+		symbolsByFile: make(map[string][]projectSymbolRecord, fileCount),
+	}
+	selectors := make([]ProjectSelector, 0, fileCount)
+	for fileIndex := 0; fileIndex < fileCount; fileIndex++ {
+		path := fmt.Sprintf("src/file-%d.ts", fileIndex)
+		key := projectPathKey(path)
+		model.files[key] = projectFileRecord{facts: ProjectFileFacts{Path: path, SourceFingerprint: "fingerprint"}}
+		records := make([]projectSymbolRecord, perFile)
+		for symbolIndex := range records {
+			id := fmt.Sprintf("s%02d", symbolIndex)
+			records[symbolIndex] = projectSymbolRecord{
+				pathKey: key, symbol: NormalizedSymbol{ID: id, Name: id},
+				entity: RelationEntity{Path: path, QualifiedName: id, SymbolID: id},
+			}
+		}
+		model.symbolsByFile[key] = records
+		selectors = append(selectors, ProjectSelector{Kind: ProjectSelectorPath, Path: path, SourceFingerprint: "fingerprint"})
+	}
+	var seeds []projectContextSeed
+	for index, selector := range selectors {
+		var err error
+		seeds, err = model.appendContextSeedsForSelector(seeds, selector)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(seeds) != (index+1)*perFile {
+			t.Fatalf("after %d paths: %d seeds", index+1, len(seeds))
+		}
+		for i, seed := range seeds {
+			if seed.record.entity.Path != selectors[i/perFile].Path ||
+				seed.record.symbol.ID != fmt.Sprintf("s%02d", i%perFile) {
+				t.Fatalf("out-of-order seed %d: %+v", i, seed.record)
+			}
+		}
+		if cap(seeds) > 2*len(seeds) {
+			t.Fatalf("seed buffer over-allocated: len=%d cap=%d", len(seeds), cap(seeds))
+		}
+		if index == 2 && cap(seeds) < 4*perFile {
+			t.Fatalf("seed buffer did not amortize growth: len=%d cap=%d", len(seeds), cap(seeds))
+		}
+	}
+}
+
 // Mixed selectors append to the request-owned buffer without replacing prior
 // seeds or weakening path fingerprint validation.
 func TestProjectContextAppendSelectorSeedsReusesRequestBuffer(t *testing.T) {
