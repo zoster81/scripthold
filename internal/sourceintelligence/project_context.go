@@ -118,9 +118,43 @@ func (model *ProjectModel) PlanContext(ctx context.Context, targets []ProjectSel
 	sort.Strings(pathTargets)
 	pathTargets = deduplicateStrings(pathTargets)
 
+	candidateCapacity := min(options.MaxItems, len(seeds)+8)
+	if len(targets) == 1 && len(pathTargets) == 1 &&
+		options.MaxItems >= 128 && options.BudgetBytes/512 >= options.MaxItems {
+		// Count only distinct directly imported files. The hint is request-local
+		// and may overestimate, but cannot grow beyond the configured item cap.
+		estimated := len(seeds)
+		visited := map[string]struct{}{pathTargets[0]: {}}
+		for _, dependency := range model.dependenciesBySource[pathTargets[0]] {
+			for _, target := range dependency.Targets {
+				key := projectPathKey(target.Path)
+				if _, exists := visited[key]; exists {
+					continue
+				}
+				visited[key] = struct{}{}
+				// Only parentless declarations are a safe lower-bound hint;
+				// nested declarations can greatly outnumber context roots.
+				for _, record := range model.symbolsByFile[key] {
+					if record.symbol.ParentID == "" {
+						estimated++
+					}
+					if estimated >= options.MaxItems {
+						break
+					}
+				}
+				if estimated >= options.MaxItems {
+					break
+				}
+			}
+			if estimated >= options.MaxItems {
+				break
+			}
+		}
+		candidateCapacity = max(candidateCapacity, min(options.MaxItems, estimated))
+	}
 	planner := projectContextPlanner{
 		model: model, options: options,
-		plan: ProjectContextPlan{Candidates: make([]ProjectContextCandidate, 0, min(options.MaxItems, len(seeds)+8))},
+		plan: ProjectContextPlan{Candidates: make([]ProjectContextCandidate, 0, candidateCapacity)},
 		seen: make(map[projectContextKey]struct{}),
 	}
 	for _, seed := range seeds {

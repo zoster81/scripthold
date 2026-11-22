@@ -727,6 +727,52 @@ func TestProjectContextFlatPathMonotonicOrderAvoidsIndexScratch(t *testing.T) {
 	}
 }
 
+// A capacity hint must not change resolved context, repeated-import
+// deduplication, or the byte budget's ability to reject candidates.
+func TestProjectContextDependencyCapacityHintPreservesPlans(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sharedSource, clientSource strings.Builder
+	for index := 0; index < 96; index++ {
+		fmt.Fprintf(&sharedSource, "export class Item%d {}\n", index)
+	}
+	for index := 0; index < 48; index++ {
+		fmt.Fprintf(&clientSource, "import { Item%d } from \"./shared\";\n", index)
+	}
+	clientSource.WriteString("export class Client {}\n")
+	root := filepath.Join("project", "context", "capacity")
+	shared := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join(root, "shared.ts"), sharedSource.String())
+	client := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join(root, "client.ts"), clientSource.String())
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{shared, client}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := queryPathSelector(client)
+	options := ProjectContextOptions{BudgetBytes: 1 << 20, MaxItems: 127, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+	withoutHint, err := model.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	options.MaxItems = 128
+	withHint, err := model.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(withHint.Candidates) < 90 || !reflect.DeepEqual(withoutHint, withHint) {
+		t.Fatalf("capacity hint changed broad dependency plan: without=%d with=%d", len(withoutHint.Candidates), len(withHint.Candidates))
+	}
+	options.BudgetBytes = 64
+	tight, err := model.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tight.UsedBytes > options.BudgetBytes || !tight.Truncated || len(tight.Candidates) >= len(withHint.Candidates) {
+		t.Fatalf("byte-limited plan lost budget/truncation: used=%d candidates=%d truncated=%t", tight.UsedBytes, len(tight.Candidates), tight.Truncated)
+	}
+}
+
 // Flat-path roots may stop only after a nonrequired target has proved
 // the item limit is exceeded. Byte pressure alone must not end scanning.
 func TestProjectContextFlatTargetsComplete(t *testing.T) {
