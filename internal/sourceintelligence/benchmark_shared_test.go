@@ -661,6 +661,42 @@ func BenchmarkSharedProjectResolverDenseGoScaling(b *testing.B) {
 				}
 			}
 		})
+		// The existing multi-file position benchmark resolves a reference first.
+		// This exercises the independent symbol-range fallback in a dense file.
+		b.Run(name+"/position-symbol", func(b *testing.B) {
+			model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+			if err != nil {
+				b.Fatal(err)
+			}
+			lastName := fmt.Sprintf("F%04d", declarations-1)
+			var selected NormalizedSymbol
+			for _, symbol := range analyzed.Analysis.Symbols {
+				if symbol.Name == lastName {
+					selected = symbol
+					break
+				}
+			}
+			if selected.ID == "" {
+				b.Fatalf("missing last function %q", lastName)
+			}
+			position := selected.NameRange.Start
+			selector := ProjectSelector{
+				Kind: ProjectSelectorPosition, Path: document.Path,
+				SourceFingerprint: document.SourceFingerprint, Position: &position,
+			}
+			initial, err := model.resolveProjectSelector(selector)
+			if err != nil || initial.reference != nil || initial.entity.SymbolID != selected.ID {
+				b.Fatalf("position did not select the last function: %+v err=%v", initial, err)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				resolved, err := model.resolveProjectSelector(selector)
+				if err != nil || resolved.reference != nil || resolved.entity.SymbolID != selected.ID {
+					b.Fatalf("position selector changed: %+v err=%v", resolved, err)
+				}
+			}
+		})
 	}
 }
 
