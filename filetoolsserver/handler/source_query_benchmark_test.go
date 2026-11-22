@@ -81,6 +81,60 @@ func BenchmarkSourceQuerySelectionFingerprintStages(b *testing.B) {
 	})
 }
 
+// BenchmarkSourceQuerySingleFileFingerprintAttribution isolates immutable
+// analyzer-configuration hashing from a full warm single-file request.
+// The sub-benchmark times are independent and must not be added together.
+func BenchmarkSourceQuerySingleFileFingerprintAttribution(b *testing.B) {
+	root := b.TempDir()
+	path := filepath.Join(root, "sample.go")
+	if err := os.WriteFile(path, []byte("package sample\nfunc Target() {}\n"), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	ctx := context.Background()
+	h := NewHandler([]string{root})
+	limits := h.sourceLimits()
+	registry, err := sourceintelligence.DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	fingerprintConfig := sourceintelligence.ProjectIndexAnalysisConfig{
+		MaxFileBytes: limits.MaxFileBytes, MaxDecodedCharacters: h.maxDecodedCharacters(),
+		MaxSymbols: limits.MaxSymbols, MaxSignatureBytes: limits.MaxSignatureBytes,
+		MaxDiagnostics: limits.MaxDiagnostics, MaxDetectorProbes: limits.MaxDetectorProbes,
+		MaxNesting: limits.MaxNesting, MaxProjectEdges: limits.MaxGraphEdges,
+	}
+	input := SourceQueryInput{
+		Operation: "search", Paths: []string{path}, Query: "Target",
+		Mode: "structural", Match: "exact", Language: "go", Encoding: "utf-8",
+		MaxFiles: 1, MaxResults: 4,
+	}
+	toolError, seed, err := h.SourceQuery(ctx, nil, input)
+	if err != nil || toolError != nil || seed.Search == nil || len(seed.Search.Matches) != 1 {
+		b.Fatalf("seed query: toolError=%+v err=%v output=%+v", toolError, err, seed)
+	}
+	b.Run("analysis-fingerprint", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			fingerprint, err := sourceintelligence.ProjectIndexAnalysisFingerprint(registry, fingerprintConfig)
+			if err != nil || fingerprint == "" {
+				b.Fatalf("analysis fingerprint: %v", err)
+			}
+		}
+	})
+	b.Run("warm-full-query", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			toolError, output, err := h.SourceQuery(ctx, nil, input)
+			if err != nil || toolError != nil || output.Index != seed.Index ||
+				output.Search == nil || len(output.Search.Matches) != 1 {
+				b.Fatalf("warm query: toolError=%+v err=%v output=%+v", toolError, err, output)
+			}
+		}
+	})
+}
+
 func BenchmarkSourceQueryColdWarmAndLookup(b *testing.B) {
 	root := b.TempDir()
 	const fileCount = 80

@@ -9,6 +9,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zoster81/scripthold/internal/concurrency"
@@ -78,7 +79,7 @@ func (h *Handler) collectSourceQueryIndex(ctx context.Context, input SourceQuery
 		}
 	}
 
-	analysisFingerprint, fingerprintErr := sourceintelligence.ProjectIndexAnalysisFingerprint(registry, sourceintelligence.ProjectIndexAnalysisConfig{
+	analysisFingerprint, fingerprintErr := h.sourceQueryAnalysisFingerprint(registry, sourceintelligence.ProjectIndexAnalysisConfig{
 		MaxFileBytes: limits.MaxFileBytes, MaxDecodedCharacters: h.maxDecodedCharacters(), MaxSymbols: limits.MaxSymbols, MaxSignatureBytes: limits.MaxSignatureBytes,
 		MaxDiagnostics: limits.MaxDiagnostics, MaxDetectorProbes: limits.MaxDetectorProbes, MaxNesting: limits.MaxNesting,
 		MaxProjectEdges: limits.MaxGraphEdges,
@@ -140,6 +141,36 @@ func (h *Handler) collectSourceQueryIndex(ctx context.Context, input SourceQuery
 		Truncated:              selection.Coverage.Truncated,
 	}
 	return selection, coverage, registry, nil
+}
+
+type sourceQueryAnalysisFingerprintCache struct {
+	mu          sync.Mutex
+	registry    *sourceintelligence.LanguageRegistry
+	config      sourceintelligence.ProjectIndexAnalysisConfig
+	fingerprint string
+}
+
+// sourceQueryAnalysisFingerprint caches one immutable registry/config fingerprint
+// per handler. The single-entry cache bounds retained state even if configuration
+// changes; file content fingerprints and generation checks still run per request.
+func (h *Handler) sourceQueryAnalysisFingerprint(
+	registry *sourceintelligence.LanguageRegistry,
+	config sourceintelligence.ProjectIndexAnalysisConfig,
+) (string, error) {
+	cache := &h.sourceAnalysisCache
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if cache.fingerprint != "" && cache.registry == registry && cache.config == config {
+		return cache.fingerprint, nil
+	}
+	fingerprint, err := sourceintelligence.ProjectIndexAnalysisFingerprint(registry, config)
+	if err != nil {
+		return "", err
+	}
+	cache.registry = registry
+	cache.config = config
+	cache.fingerprint = fingerprint
+	return fingerprint, nil
 }
 
 func (h *Handler) sourceQueryIndexManager() (*sourceintelligence.ProjectIndexManager, error) {

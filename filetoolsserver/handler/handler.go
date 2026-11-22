@@ -135,6 +135,7 @@ type Handler struct {
 	sourceIndexOnce            sync.Once
 	sourceIndex                *sourceintelligence.ProjectIndexManager
 	sourceIndexInitErr         error
+	sourceAnalysisCache        sourceQueryAnalysisFingerprintCache
 	sourceCursorOnce           sync.Once
 	sourceCursorSecret         [32]byte
 	sourceCursorInitErr        error
