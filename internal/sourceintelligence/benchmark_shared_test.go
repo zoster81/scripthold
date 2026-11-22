@@ -10,6 +10,30 @@ import (
 	"unsafe"
 )
 
+// BenchmarkProjectGenericNameNormalization isolates lexical generic stripping
+// from project-model construction and captures malformed/Unicode controls.
+func BenchmarkProjectGenericNameNormalization(b *testing.B) {
+	for _, item := range []struct {
+		name, input string
+	}{
+		{name: "plain-ascii", input: "project.Service.Handle"},
+		{name: "nested-generic", input: "Map<String, List<T>>.Handle"},
+		{name: "unicode", input: "Niño.方法"},
+		{name: "invalid-utf8", input: string([]byte{'a', 0xff, 'b'})},
+	} {
+		b.Run(item.name, func(b *testing.B) {
+			want := stripBalancedGenericArguments(item.input)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for index := 0; index < b.N; index++ {
+				if got := stripBalancedGenericArguments(item.input); got != want {
+					b.Fatalf("generic spelling changed: got %q, want %q", got, want)
+				}
+			}
+		})
+	}
+}
+
 var cppRawStringStartBenchmarkSink int
 
 func BenchmarkScannerDelimiterValidation(b *testing.B) {

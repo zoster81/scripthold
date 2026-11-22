@@ -1098,6 +1098,19 @@ func normalizeProjectReference(value string) string {
 }
 
 func stripBalancedGenericArguments(value string) string {
+	// Retain the rune loop for Unicode and malformed UTF-8: it normalizes
+	// invalid bytes to replacement runes, unlike a raw string shortcut.
+	plainASCII := true
+	for index := 0; index < len(value); index++ {
+		char := value[index]
+		if char >= 0x80 || char == '<' || char == '>' {
+			plainASCII = false
+			break
+		}
+	}
+	if plainASCII {
+		return strings.TrimSpace(value)
+	}
 	var builder strings.Builder
 	depth := 0
 	for _, char := range value {

@@ -12,6 +12,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Changed
 
+- Plain ASCII project relation names without generic brackets now bypass unnecessary temporary string construction during name normalization; generic syntax, Unicode, invalid UTF-8, malformed references, candidate precedence, and public results retain their existing behavior.
 - Project reference identities now encode source coordinates directly into the existing length-framed SHA-256 digest without allocating temporary decimal strings. This reduces work when rebuilding structural relationships while preserving exact reference IDs, resolution order, generation fingerprints, and public results.
 - Dependency-aware `source_query.context` plans now append nested root declarations directly into request-local seed storage without first copying a separate root-record slice, preserving nested ownership, selector order, budgets, fingerprints, and cancellation.
 - Independent multi-file `source_query.context` requests with flat, ordered declarations and no structural relations now select directly from immutable model records, avoiding large request-local seed copies while preserving path fingerprints, byte and item budgets, ordering, truncation, cancellation, and conservative fallback for other requests.

@@ -15,6 +15,44 @@ import (
 	"github.com/zoster81/scripthold/internal/operation"
 )
 
+// Keep the lexical generic stripping contract unchanged for plain names,
+// Unicode spelling, invalid UTF-8 and unbalanced brackets.
+func TestStripBalancedGenericArgumentsParity(t *testing.T) {
+	legacy := func(value string) string {
+		var builder strings.Builder
+		depth := 0
+		for _, char := range value {
+			switch char {
+			case '<':
+				depth++
+			case '>':
+				if depth == 0 {
+					return strings.TrimSpace(value)
+				}
+				depth--
+			default:
+				if depth == 0 {
+					builder.WriteRune(char)
+				}
+			}
+		}
+		if depth != 0 {
+			return strings.TrimSpace(value)
+		}
+		return strings.TrimSpace(builder.String())
+	}
+	cases := []string{
+		"", "Name", " package.Service.handle ", "a.b_C42", "NUL\x00name",
+		"Niño.方法", " Map<String, List<T>>.get ", "Unclosed<", "TooMany>",
+		"Trailing<Inner<T>", "A<>.b", string([]byte{'a', 0xff, 'b'}),
+	}
+	for index, input := range cases {
+		if got, want := stripBalancedGenericArguments(input), legacy(input); got != want {
+			t.Fatalf("generic spelling case %d: got %q, want %q", index, got, want)
+		}
+	}
+}
+
 // Reference IDs are stable, length-delimited SHA-256 digests. Preserve the
 // original on-wire identity even for empty, Unicode and unusual positions.
 func TestDeterministicProjectReferenceIDWireParity(t *testing.T) {
