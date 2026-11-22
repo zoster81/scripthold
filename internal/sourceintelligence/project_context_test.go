@@ -980,6 +980,117 @@ func TestProjectContextMidrangeFlatPathMatchesGeneral(t *testing.T) {
 	}
 }
 
+// A flat multi-path context should match the complete general route, while
+// stale paths, repeated selectors and any edges stay on the conservative route.
+func TestProjectContextFlatMultiPathMatchesGeneral(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fileCount := range []int{8, 16} {
+		t.Run(fmt.Sprintf("files-%d", fileCount), func(t *testing.T) {
+			facts := make([]ProjectFileFacts, 0, fileCount)
+			selectors := make([]ProjectSelector, 0, fileCount)
+			for fileIndex := 0; fileIndex < fileCount; fileIndex++ {
+				var source strings.Builder
+				for index := 0; index < 128; index++ {
+					fmt.Fprintf(&source, "export class F%02dS%03d {}\n", fileIndex, index)
+				}
+				fact := projectResolverFacts(t, TypeScriptAnalyzer{}, filepath.Join("project", "context", fmt.Sprintf("multi-flat-%02d.ts", fileIndex)), source.String())
+				facts = append(facts, fact)
+				selectors = append(selectors, queryPathSelector(fact))
+			}
+			model, err := BuildProjectModel(context.Background(), registry, facts, ProjectResolverLimits{
+				MaxFiles: fileCount, MaxSymbols: 4096, MaxDependencies: 4096, MaxReferences: 4096, MaxCandidatesPerResolution: 64,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			general := *model
+			general.referencesByTargetIndices = map[string][]int{"unused-ref": nil}
+			for _, budget := range []int{64, 4096, 1 << 20} {
+				options := ProjectContextOptions{MaxItems: 24, MaxDepth: 2, BudgetBytes: budget, BodyPolicy: ProjectContextSignaturesOnly}
+				want, wantErr := general.PlanContext(context.Background(), selectors, options)
+				got, gotErr := model.PlanContext(context.Background(), selectors, options)
+				if operation.KindOf(gotErr) != operation.KindOf(wantErr) || !reflect.DeepEqual(got, want) {
+					t.Fatalf("multi-path context files=%d budget=%d gotErr=%v wantErr=%v got=%+v want=%+v", fileCount, budget, gotErr, wantErr, got, want)
+				}
+				if _, eligible, err := model.planFlatMultiPathContext(context.Background(), selectors, options); !eligible || err != nil {
+					t.Fatalf("flat multi-path should be eligible files=%d budget=%d eligible=%t err=%v", fileCount, budget, eligible, err)
+				}
+			}
+			options := ProjectContextOptions{MaxItems: 24, MaxDepth: 2, BudgetBytes: 1 << 20, BodyPolicy: ProjectContextSignaturesOnly}
+			for name, selection := range map[string][]ProjectSelector{
+				"duplicate": append(append([]ProjectSelector(nil), selectors...), selectors[0]),
+				"stale": func() []ProjectSelector {
+					copy := append([]ProjectSelector(nil), selectors...)
+					copy[0].SourceFingerprint += "-stale"
+					return copy
+				}(),
+			} {
+				t.Run(name, func(t *testing.T) {
+					if _, eligible, err := model.planFlatMultiPathContext(context.Background(), selection, options); eligible || err != nil {
+						t.Fatalf("unsafe multi-path shortcut selected: eligible=%t err=%v", eligible, err)
+					}
+				})
+			}
+			for name, mutate := range map[string]func(*ProjectModel){
+				"dependency": func(copy *ProjectModel) {
+					copy.dependencies = []ProjectDependency{{}}
+				},
+				"reference-index": func(copy *ProjectModel) {
+					copy.referencesByTargetIndices = map[string][]int{"unused-ref": nil}
+				},
+				"nested-record": func(copy *ProjectModel) {
+					key := projectPathKey(facts[0].Path)
+					records := append([]projectSymbolRecord(nil), model.symbolsByFile[key]...)
+					records[0].symbol.ParentID = "unknown-parent"
+					copy.symbolsByFile = make(map[string][]projectSymbolRecord, len(model.symbolsByFile))
+					for k, originals := range model.symbolsByFile {
+						copy.symbolsByFile[k] = originals
+					}
+					copy.symbolsByFile[key] = records
+				},
+				"out-of-order": func(copy *ProjectModel) {
+					key := projectPathKey(facts[0].Path)
+					records := append([]projectSymbolRecord(nil), model.symbolsByFile[key]...)
+					records[0], records[1] = records[1], records[0]
+					copy.symbolsByFile = make(map[string][]projectSymbolRecord, len(model.symbolsByFile))
+					for k, originals := range model.symbolsByFile {
+						copy.symbolsByFile[k] = originals
+					}
+					copy.symbolsByFile[key] = records
+				},
+			} {
+				t.Run(name, func(t *testing.T) {
+					copy := *model
+					mutate(&copy)
+					if _, eligible, err := copy.planFlatMultiPathContext(context.Background(), selectors, options); eligible || err != nil {
+						t.Fatalf("unsafe %s shortcut selected: eligible=%t err=%v", name, eligible, err)
+					}
+				})
+			}
+			reversed := append([]ProjectSelector(nil), selectors...)
+			for i, j := 0, len(reversed)-1; i < j; i, j = i+1, j-1 {
+				reversed[i], reversed[j] = reversed[j], reversed[i]
+			}
+			want, err := general.PlanContext(context.Background(), reversed, options)
+			if err != nil {
+				t.Fatalf("general reversed selectors: %v", err)
+			}
+			got, err := model.PlanContext(context.Background(), reversed, options)
+			if err != nil || !reflect.DeepEqual(got, want) {
+				t.Fatalf("reversed selector order changed: %v", err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel()
+			if _, err := model.PlanContext(ctx, selectors, options); operation.KindOf(err) != operation.KindCancelled {
+				t.Fatalf("canceled multi-path context error=%v", err)
+			}
+		})
+	}
+}
+
 // Sorting may inspect model-owned declaration offsets without allocating
 // cloned signature/body ranges or mutating any retained symbol.
 func TestProjectContextSeedSortAvoidsOffsetClone(t *testing.T) {

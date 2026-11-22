@@ -94,6 +94,10 @@ func (model *ProjectModel) PlanContext(ctx context.Context, targets []ProjectSel
 		if plan, eligible, err := model.planFlatPathContext(ctx, targets[0], options); eligible {
 			return plan, err
 		}
+	} else {
+		if plan, eligible, err := model.planFlatMultiPathContext(ctx, targets, options); eligible {
+			return plan, err
+		}
 	}
 
 	seeds := make([]projectContextSeed, 0, len(targets))
@@ -254,6 +258,87 @@ func (model *ProjectModel) planFlatPathContext(ctx context.Context, selector Pro
 	// after every seed has been offered to the bounded planner.
 	if err := ctx.Err(); err != nil {
 		return ProjectContextPlan{}, true, operation.Wrap(operation.KindCancelled, "plan_project_context", file.facts.Path, err)
+	}
+	return planner.plan, true, nil
+}
+
+// planFlatMultiPathContext visits already ordered immutable records without
+// allocating and sorting one full seed copy per path. Only independent flat
+// files are eligible; all related, nested or ambiguous models use the general
+// planner, which preserves their complete context graph behavior.
+func (model *ProjectModel) planFlatMultiPathContext(ctx context.Context, selectors []ProjectSelector, options ProjectContextOptions) (ProjectContextPlan, bool, error) {
+	if len(selectors) < 2 || len(selectors) > 64 || options.MaxItems > 256 ||
+		len(model.dependencies) != 0 || len(model.dependenciesBySource) != 0 ||
+		len(model.dependentsByTarget) != 0 || len(model.references) != 0 ||
+		len(model.referencesByTarget) != 0 || len(model.referencesByTargetIndices) != 0 ||
+		len(model.referencesBySource) != 0 || len(model.referencesBySourceID) != 0 ||
+		len(model.definitionsByReference) != 0 {
+		return ProjectContextPlan{}, false, nil
+	}
+	paths := make([]string, 0, len(selectors))
+	visited := make(map[string]struct{}, len(selectors))
+	total := 0
+	for _, selector := range selectors {
+		if err := ctx.Err(); err != nil {
+			return ProjectContextPlan{}, true, operation.Wrap(operation.KindCancelled, "plan_project_context", selector.Path, err)
+		}
+		if selector.Kind != ProjectSelectorPath || selector.Path == "" {
+			return ProjectContextPlan{}, false, nil
+		}
+		pathKey := projectPathKey(selector.Path)
+		file, exists := model.files[pathKey]
+		if !exists || selector.SourceFingerprint != file.facts.SourceFingerprint {
+			return ProjectContextPlan{}, false, nil
+		}
+		if _, exists := visited[pathKey]; exists {
+			return ProjectContextPlan{}, false, nil
+		}
+		visited[pathKey] = struct{}{}
+		records := model.symbolsByFile[pathKey]
+		if len(records) == 0 {
+			return ProjectContextPlan{}, false, nil
+		}
+		for index := range records {
+			record := records[index]
+			if record.pathKey != pathKey || record.symbol.ParentID != "" ||
+				(index > 0 && !projectSymbolRecordLess(records[index-1], record)) {
+				return ProjectContextPlan{}, false, nil
+			}
+			if index > 0 {
+				previous := records[index-1].symbol
+				if previous.declarationOffsets.Start > record.symbol.declarationOffsets.Start ||
+					(previous.declarationOffsets.Start == record.symbol.declarationOffsets.Start && previous.ID >= record.symbol.ID) {
+					return ProjectContextPlan{}, false, nil
+				}
+			}
+		}
+		total += len(records)
+		paths = append(paths, pathKey)
+	}
+	if total <= options.MaxItems*4 {
+		return ProjectContextPlan{}, false, nil
+	}
+	sort.Strings(paths)
+	planner := projectContextPlanner{
+		model: model, options: options,
+		plan: ProjectContextPlan{Candidates: make([]ProjectContextCandidate, 0, min(options.MaxItems, total))},
+		seen: make(map[projectContextKey]struct{}),
+	}
+	for _, pathKey := range paths {
+		for _, record := range model.symbolsByFile[pathKey] {
+			if err := planner.add(record, ContextTarget, 1, record.symbol.Evidence, ResolutionResolved, false); err != nil {
+				return ProjectContextPlan{}, true, err
+			}
+			if planner.flatTargetsComplete() {
+				break
+			}
+		}
+		if planner.flatTargetsComplete() {
+			break
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return ProjectContextPlan{}, true, operation.Wrap(operation.KindCancelled, "plan_project_context", "", err)
 	}
 	return planner.plan, true, nil
 }
