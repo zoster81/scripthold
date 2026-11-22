@@ -1153,6 +1153,56 @@ func BenchmarkSharedProjectQueryAndContext(b *testing.B) {
 	})
 }
 
+// BenchmarkProjectLargeSymbolModelCosts separates immutable model construction
+// from index-owned facts cloning on an analyzer-proven dense Go source file.
+func BenchmarkProjectLargeSymbolModelCosts(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, functions := range []int{64, 5000} {
+		b.Run(fmt.Sprintf("functions-%d", functions), func(b *testing.B) {
+			var source strings.Builder
+			source.WriteString("package benchmark\n")
+			for index := 0; index < functions; index++ {
+				fmt.Fprintf(&source, "func F%04d(value int) int { return value + %d }\n", index, index)
+			}
+			document := sourceDocumentForScanner(source.String())
+			document.Path = "project/benchmark/Large.go"
+			document.SourceFingerprint = benchmarkDigest(source.String())
+			analysis, err := (GoAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, functions+16))
+			if err != nil || !analysis.Analysis.CoverageComplete || len(analysis.Analysis.Symbols) != functions+1 {
+				b.Fatalf("analyzer fixture symbols=%d complete=%t err=%v", len(analysis.Analysis.Symbols), analysis.Analysis.CoverageComplete, err)
+			}
+			facts := ProjectFileFacts{Path: document.Path, Language: "go", SourceFingerprint: document.SourceFingerprint, Analysis: analysis}
+			limits := ProjectResolverLimits{
+				MaxFiles: 1, MaxSymbols: functions + 16, MaxDependencies: 64,
+				MaxReferences: 64, MaxCandidatesPerResolution: 64,
+			}
+			b.Run("model-build", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for iteration := 0; iteration < b.N; iteration++ {
+					model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, limits)
+					if err != nil || len(model.symbolsByFile[projectPathKey(facts.Path)]) != functions+1 {
+						b.Fatalf("model build changed: err=%v", err)
+					}
+				}
+			})
+			b.Run("owned-facts-clone", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for iteration := 0; iteration < b.N; iteration++ {
+					cloned := cloneProjectFileFactsForIndex(facts)
+					if len(cloned.Analysis.Analysis.Symbols) != functions+1 {
+						b.Fatal("snapshot clone changed symbol count")
+					}
+				}
+			})
+		})
+	}
+}
+
 // BenchmarkProjectDenseSameFileResolution separates the per-reference source
 // lookup from the full model build for files with many local declarations.
 func BenchmarkProjectDenseSameFileResolution(b *testing.B) {
