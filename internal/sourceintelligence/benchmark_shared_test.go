@@ -650,6 +650,20 @@ func BenchmarkProjectContextFlatPath(b *testing.B) {
 				}
 			}
 		})
+		// Beyond the compact flat-path shortcut, a broad context with no
+		// dependencies must not spend disproportionate work estimating capacity.
+		b.Run(fmt.Sprintf("symbols-%d/plan-path-broad-128", count), func(b *testing.B) {
+			wideOptions := options
+			wideOptions.MaxItems = 128
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				plan, err := model.PlanContext(context.Background(), []ProjectSelector{selector}, wideOptions)
+				if err != nil || len(plan.Candidates) != 128 || plan.Truncated != (count > 128) {
+					b.Fatalf("broad flat context changed: %d candidates, truncated=%t, err=%v", len(plan.Candidates), plan.Truncated, err)
+				}
+			}
+		})
 	}
 }
 

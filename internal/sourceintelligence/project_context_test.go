@@ -882,6 +882,47 @@ func TestProjectContextFlatPathCompactPlanMatchesGeneral(t *testing.T) {
 	}
 }
 
+// A broad flat file must use the compact path without changing the exact
+// general plan, including when a byte budget truncates before the item limit.
+func TestProjectContextBroadFlatPathMatchesGeneral(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source strings.Builder
+	for index := 0; index < 2048; index++ {
+		fmt.Fprintf(&source, "export class Flat%05d {}\n", index)
+	}
+	document := sourceDocumentForScanner(source.String())
+	document.Path = filepath.Join("project", "context", "large-flat.ts")
+	document.SourceFingerprint = benchmarkDigest(document.Text)
+	analyzed, err := (TypeScriptAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 8192))
+	if err != nil || !analyzed.Analysis.CoverageComplete {
+		t.Fatalf("analyze broad flat context: %v", err)
+	}
+	facts := ProjectFileFacts{Path: document.Path, Language: "typescript", SourceFingerprint: document.SourceFingerprint, Analysis: analyzed}
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, ProjectResolverLimits{
+		MaxFiles: 1, MaxSymbols: 8192, MaxDependencies: 8192, MaxReferences: 8192, MaxCandidatesPerResolution: 64,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := queryPathSelector(facts)
+	baseline := *model
+	baseline.referencesByTargetIndices = map[string][]int{"unused-ref": nil}
+	for _, budget := range []int{64, 4096, 1 << 20} {
+		options := ProjectContextOptions{MaxItems: 128, MaxDepth: 2, BudgetBytes: budget, BodyPolicy: ProjectContextSignaturesOnly}
+		want, err := baseline.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+		if err != nil {
+			t.Fatalf("general plan budget=%d: %v", budget, err)
+		}
+		got, eligible, err := model.planFlatPathContext(context.Background(), selector, options)
+		if !eligible || err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("broad flat compact plan budget=%d eligible=%t err=%v candidates=%d want=%d", budget, eligible, err, len(got.Candidates), len(want.Candidates))
+		}
+	}
+}
+
 // Sorting may inspect model-owned declaration offsets without allocating
 // cloned signature/body ranges or mutating any retained symbol.
 func TestProjectContextSeedSortAvoidsOffsetClone(t *testing.T) {
