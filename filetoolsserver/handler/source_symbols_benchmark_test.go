@@ -323,6 +323,34 @@ func BenchmarkSourceSymbolsPhaseAttribution(b *testing.B) {
 			}
 		}
 	})
+	// Keep each authorization boundary measurable without treating the independent
+	// stages as additive components of the complete handler latency.
+	b.Run("validate-request-path", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			checked := h.ValidatePath(path)
+			if !checked.Ok() || checked.Path != validated.Path {
+				b.Fatalf("request path authorization changed: %+v", checked)
+			}
+		}
+	})
+	b.Run("visit-explicit-file", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			seen := 0
+			err := h.visitIncludedFiles(ctx, []string{validated.Path}, nil, nil, false, func(found string) {
+				if found != validated.Path {
+					b.Fatalf("file visitation changed: %q", found)
+				}
+				seen++
+			})
+			if err != nil || seen != 1 {
+				b.Fatalf("explicit source file visitation changed: seen=%d err=%v", seen, err)
+			}
+		}
+	})
 	b.Run("select-authorized-files", func(b *testing.B) {
 		b.ReportAllocs()
 		b.SetBytes(int64(len(document.Text)))
