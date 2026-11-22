@@ -190,6 +190,9 @@ func (model *ProjectModel) planFlatPathContext(ctx context.Context, selector Pro
 			if err := planner.add(record, ContextTarget, 1, record.symbol.Evidence, ResolutionResolved, false); err != nil {
 				return ProjectContextPlan{}, true, err
 			}
+			if planner.flatTargetsComplete() {
+				break
+			}
 		}
 	} else {
 		indices := make([]int, len(records))
@@ -208,6 +211,9 @@ func (model *ProjectModel) planFlatPathContext(ctx context.Context, selector Pro
 			if err := planner.add(record, ContextTarget, 1, record.symbol.Evidence, ResolutionResolved, false); err != nil {
 				return ProjectContextPlan{}, true, err
 			}
+			if planner.flatTargetsComplete() {
+				break
+			}
 		}
 	}
 	// In the general route, deeper dependency traversal checks cancellation
@@ -216,6 +222,12 @@ func (model *ProjectModel) planFlatPathContext(ctx context.Context, selector Pro
 		return ProjectContextPlan{}, true, operation.Wrap(operation.KindCancelled, "plan_project_context", file.facts.Path, err)
 	}
 	return planner.plan, true, nil
+}
+
+// All remaining flat targets are nonrequired; once the item limit is
+// conclusively exceeded, later targets cannot alter this plan.
+func (planner *projectContextPlanner) flatTargetsComplete() bool {
+	return len(planner.plan.Candidates) >= planner.options.MaxItems && planner.plan.Truncated
 }
 
 // appendContextSeedsForSelector writes path roots directly into the request's

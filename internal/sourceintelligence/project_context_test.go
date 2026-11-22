@@ -727,6 +727,38 @@ func TestProjectContextFlatPathMonotonicOrderAvoidsIndexScratch(t *testing.T) {
 	}
 }
 
+// Flat-path roots may stop only after a nonrequired target has proved
+// the item limit is exceeded. Byte pressure alone must not end scanning.
+func TestProjectContextFlatTargetsComplete(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		items     int
+		limit     int
+		truncated bool
+		want      bool
+	}{
+		{name: "at-item-limit-exact", items: 8, limit: 8},
+		{name: "at-item-limit-overflow", items: 8, limit: 8, truncated: true, want: true},
+		{name: "byte-budget-only", items: 5, limit: 8, truncated: true},
+		{name: "empty-plan", items: 0, limit: 8},
+		{name: "underfilled-truncation", items: 7, limit: 8, truncated: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			planner := projectContextPlanner{
+				options: ProjectContextOptions{MaxItems: tc.limit},
+				plan: ProjectContextPlan{
+					Candidates: make([]ProjectContextCandidate, tc.items),
+					Truncated:  tc.truncated,
+				},
+			}
+			if got := planner.flatTargetsComplete(); got != tc.want {
+				t.Fatalf("stop=%t want=%t items=%d limit=%d truncated=%t",
+					got, tc.want, tc.items, tc.limit, tc.truncated)
+			}
+		})
+	}
+}
+
 // The compact flat-file planner must agree byte-for-byte with the general
 // planner, including item/byte limits, ordering and truncation.
 func TestProjectContextFlatPathCompactPlanMatchesGeneral(t *testing.T) {

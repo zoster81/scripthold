@@ -12,6 +12,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Changed
 
+- Bounded flat-file context plans stop scanning nonrequired roots only after the item limit is conclusively exceeded, preserving byte-budget handling, truncation, and cancellation while reducing unnecessary work.
 - Single-file flat `source_query.context` plans reuse model declaration order when offsets are already monotonic, avoiding temporary index allocation and sorting; out-of-order files retain the existing indexed sort and identical context output.
 - Multi-file `source_query.context` requests now grow their request-local symbol seed buffer geometrically, avoiding repeated full-record copies while preserving selection order, fingerprint validation, and bounded temporary memory.
 - Large single-file `source_query.context` plans with flat declarations and no structural dependencies use a bounded compact-index path, avoiding full-record seed copies while preserving response ordering, budgets, and truncation. Other plans retain the general algorithm.
