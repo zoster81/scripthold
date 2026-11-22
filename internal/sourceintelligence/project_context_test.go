@@ -651,6 +651,82 @@ func TestProjectContextAppendSelectorSeedsReusesRequestBuffer(t *testing.T) {
 	}
 }
 
+// Already offset-ordered flat records should use the existing model slice
+// directly; reverse-name source order must retain the indexed sort fallback.
+func TestProjectContextFlatPathMonotonicOrderAvoidsIndexScratch(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, reverseNames := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reverse-names-%t", reverseNames), func(t *testing.T) {
+			var source strings.Builder
+			for index := 0; index < 128; index++ {
+				name := index
+				if reverseNames {
+					name = 127 - index
+				}
+				fmt.Fprintf(&source, "export class Sort%03d {}\n", name)
+			}
+			facts := projectResolverFacts(t, TypeScriptAnalyzer{},
+				filepath.Join("project", "context", "sorted-direct.ts"), source.String())
+			model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, projectResolverLimitsForTest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			selector := queryPathSelector(facts)
+			baseline := *model
+			baseline.referencesByTargetIndices = map[string][]int{"unmatched": nil}
+			for _, limit := range []int{8, 16} {
+				for _, budget := range []int{64, 4096, 1 << 20} {
+					options := ProjectContextOptions{BudgetBytes: budget, MaxItems: limit, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+					want, wantErr := baseline.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+					got, gotErr := model.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+					if operation.KindOf(wantErr) != operation.KindOf(gotErr) || !reflect.DeepEqual(got, want) {
+						t.Fatalf("reverse=%t limit=%d budget=%d error=%v wantError=%v got=%+v want=%+v",
+							reverseNames, limit, budget, gotErr, wantErr, got, want)
+					}
+				}
+			}
+			if !reverseNames {
+				options := ProjectContextOptions{BudgetBytes: 1 << 20, MaxItems: 16, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+				allocations := testing.AllocsPerRun(30, func() {
+					if _, err := model.PlanContext(context.Background(), []ProjectSelector{selector}, options); err != nil {
+						panic(err)
+					}
+				})
+				if allocations > 25 {
+					t.Fatalf("monotonic flat path allocated %.0f times; retained unnecessary sort scratch", allocations)
+				}
+				// Equal offsets and IDs are comparison ties. Retain the
+				// original indexed sort rather than assuming a stable order.
+				pathKey := projectPathKey(facts.Path)
+				tied := *model
+				records := append([]projectSymbolRecord(nil), model.symbolsByFile[pathKey]...)
+				records[1].symbol.declarationOffsets.Start = records[0].symbol.declarationOffsets.Start
+				records[1].symbol.ID = records[0].symbol.ID
+				records[1].entity.SymbolID = records[0].entity.SymbolID
+				tied.symbolsByFile = map[string][]projectSymbolRecord{pathKey: records}
+				tiedBaseline := tied
+				tiedBaseline.referencesByTargetIndices = map[string][]int{"unmatched": nil}
+				want, wantErr := tiedBaseline.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+				got, gotErr := tied.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+				if operation.KindOf(wantErr) != operation.KindOf(gotErr) || !reflect.DeepEqual(got, want) {
+					t.Fatalf("equal comparator keys changed plan: got=%+v want=%+v err=%v baselineErr=%v", got, want, gotErr, wantErr)
+				}
+				tiedAllocs := testing.AllocsPerRun(30, func() {
+					if _, err := tied.PlanContext(context.Background(), []ProjectSelector{selector}, options); err != nil {
+						panic(err)
+					}
+				})
+				if tiedAllocs < 27 {
+					t.Fatalf("equal comparator keys bypassed original sort: %.0f allocations", tiedAllocs)
+				}
+			}
+		})
+	}
+}
+
 // The compact flat-file planner must agree byte-for-byte with the general
 // planner, including item/byte limits, ordering and truncation.
 func TestProjectContextFlatPathCompactPlanMatchesGeneral(t *testing.T) {

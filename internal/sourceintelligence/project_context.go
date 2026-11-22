@@ -165,32 +165,49 @@ func (model *ProjectModel) planFlatPathContext(ctx context.Context, selector Pro
 	}
 	// The general root selector filters nested records and re-sorts records
 	// that are not strictly ordered. Neither case is safe for this shortcut.
+	// When declaration offsets are also sorted, iterate the model directly.
+	orderedByOffset := true
 	for i := range records {
 		if records[i].pathKey != pathKey || records[i].symbol.ParentID != "" ||
 			(i > 0 && !projectSymbolRecordLess(records[i-1], records[i])) {
 			return ProjectContextPlan{}, false, nil
 		}
-	}
-	indices := make([]int, len(records))
-	for i := range indices {
-		indices[i] = i
-	}
-	sort.Slice(indices, func(i, j int) bool {
-		left, right := records[indices[i]], records[indices[j]]
-		if left.symbol.declarationOffsets.Start != right.symbol.declarationOffsets.Start {
-			return left.symbol.declarationOffsets.Start < right.symbol.declarationOffsets.Start
+		if i > 0 {
+			previous, current := records[i-1].symbol, records[i].symbol
+			if previous.declarationOffsets.Start > current.declarationOffsets.Start ||
+				(previous.declarationOffsets.Start == current.declarationOffsets.Start && previous.ID >= current.ID) {
+				orderedByOffset = false
+			}
 		}
-		return left.symbol.ID < right.symbol.ID
-	})
+	}
 	planner := projectContextPlanner{
 		model: model, options: options,
 		plan: ProjectContextPlan{Candidates: make([]ProjectContextCandidate, 0, min(options.MaxItems, len(records)+8))},
 		seen: make(map[projectContextKey]struct{}),
 	}
-	for _, index := range indices {
-		record := records[index]
-		if err := planner.add(record, ContextTarget, 1, record.symbol.Evidence, ResolutionResolved, false); err != nil {
-			return ProjectContextPlan{}, true, err
+	if orderedByOffset {
+		for _, record := range records {
+			if err := planner.add(record, ContextTarget, 1, record.symbol.Evidence, ResolutionResolved, false); err != nil {
+				return ProjectContextPlan{}, true, err
+			}
+		}
+	} else {
+		indices := make([]int, len(records))
+		for i := range indices {
+			indices[i] = i
+		}
+		sort.Slice(indices, func(i, j int) bool {
+			left, right := records[indices[i]], records[indices[j]]
+			if left.symbol.declarationOffsets.Start != right.symbol.declarationOffsets.Start {
+				return left.symbol.declarationOffsets.Start < right.symbol.declarationOffsets.Start
+			}
+			return left.symbol.ID < right.symbol.ID
+		})
+		for _, index := range indices {
+			record := records[index]
+			if err := planner.add(record, ContextTarget, 1, record.symbol.Evidence, ResolutionResolved, false); err != nil {
+				return ProjectContextPlan{}, true, err
+			}
 		}
 	}
 	// In the general route, deeper dependency traversal checks cancellation
