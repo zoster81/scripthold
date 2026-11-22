@@ -651,6 +651,84 @@ func TestProjectContextNestedSeedAppendMatchesRootSelection(t *testing.T) {
 	}
 }
 
+// Parent-container children and all-child malformed records must preserve
+// the general planner's original root choice, including its empty-root fallback.
+func TestProjectContextNestedSeedContainerAndFallbackParity(t *testing.T) {
+	path := "src/containers.ts"
+	key := projectPathKey(path)
+	makeRecord := func(id, parent string, kind SymbolKind) projectSymbolRecord {
+		return projectSymbolRecord{
+			pathKey: key,
+			symbol:  NormalizedSymbol{ID: id, Name: id, ParentID: parent, Kind: kind},
+			entity:  RelationEntity{Path: path, QualifiedName: id, SymbolID: id},
+		}
+	}
+	for _, tc := range []struct {
+		name    string
+		records []projectSymbolRecord
+		want    []string
+	}{
+		{
+			name: "package-namespace-module-and-class",
+			records: []projectSymbolRecord{
+				makeRecord("NamespaceChild", "Namespace", SymbolKindFunction),
+				makeRecord("ClassChild", "Class", SymbolKindMethod),
+				makeRecord("Module", "", SymbolKindModule),
+				makeRecord("PackageChild", "Package", SymbolKindFunction),
+				makeRecord("Class", "", SymbolKindClass),
+				makeRecord("ModuleChild", "Module", SymbolKindFunction),
+				makeRecord("Namespace", "", SymbolKindNamespace),
+				makeRecord("Orphan", "missing", SymbolKindFunction),
+				makeRecord("Package", "", SymbolKindPackage),
+			},
+			want: []string{"Class", "Module", "ModuleChild", "Namespace", "NamespaceChild", "Package", "PackageChild"},
+		},
+		{
+			name: "all-children-fallback",
+			records: []projectSymbolRecord{
+				makeRecord("Zed", "missing-z", SymbolKindFunction),
+				makeRecord("Alpha", "missing-a", SymbolKindMethod),
+			},
+			want: []string{"Alpha", "Zed"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			model := &ProjectModel{
+				files:         map[string]projectFileRecord{key: {facts: ProjectFileFacts{Path: path, SourceFingerprint: "fresh"}}},
+				symbolsByFile: map[string][]projectSymbolRecord{key: append([]projectSymbolRecord(nil), tc.records...)},
+			}
+			selector := ProjectSelector{Kind: ProjectSelectorPath, Path: path, SourceFingerprint: "fresh"}
+			before := append([]projectSymbolRecord(nil), model.symbolsByFile[key]...)
+			legacy := model.contextRootSymbols(key)
+			prefix := make([]projectContextSeed, 1, 1+len(tc.records))
+			prefix[0].record.symbol.ID = "prefix"
+			seeds, err := model.appendContextSeedsForSelector(prefix, selector)
+			if err != nil || len(seeds) != len(tc.want)+1 || seeds[0].record.symbol.ID != "prefix" ||
+				&seeds[0] != &prefix[0] {
+				t.Fatalf("root append mismatch: count=%d err=%v", len(seeds), err)
+			}
+			if len(legacy) != len(tc.want) {
+				t.Fatalf("legacy root count mismatch: got=%d want=%d", len(legacy), len(tc.want))
+			}
+			for i, id := range tc.want {
+				if seeds[i+1].record.symbol.ID != id ||
+					!reflect.DeepEqual(seeds[i+1].record, legacy[i]) ||
+					seeds[i+1].resolution != ResolutionResolved {
+					t.Fatalf("root %d differs: got=%s want=%s", i, seeds[i+1].record.symbol.ID, id)
+				}
+			}
+			if !reflect.DeepEqual(model.symbolsByFile[key], before) {
+				t.Fatal("root append modified immutable model symbols")
+			}
+			stale := selector
+			stale.SourceFingerprint = "obsolete"
+			if _, err := model.appendContextSeedsForSelector(seeds, stale); operation.KindOf(err) != operation.KindConflict {
+				t.Fatalf("stale fingerprint accepted: %v", err)
+			}
+		})
+	}
+}
+
 // Mixed selectors append to the request-owned buffer without replacing prior
 // seeds or weakening path fingerprint validation.
 func TestProjectContextAppendSelectorSeedsReusesRequestBuffer(t *testing.T) {
