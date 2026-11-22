@@ -697,6 +697,59 @@ func BenchmarkSharedProjectResolverDenseGoScaling(b *testing.B) {
 				}
 			}
 		})
+		// Measure complete relation/context operations, not only the internal
+		// symbol selector, on the same dense immutable model.
+		positionOperationSetup := func(b *testing.B) (*ProjectModel, ProjectSelector, string) {
+			b.Helper()
+			model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+			if err != nil {
+				b.Fatal(err)
+			}
+			lastName := fmt.Sprintf("F%04d", declarations-1)
+			for _, symbol := range analyzed.Analysis.Symbols {
+				if symbol.Name != lastName {
+					continue
+				}
+				position := symbol.NameRange.Start
+				selector := ProjectSelector{
+					Kind: ProjectSelectorPosition, Path: document.Path,
+					SourceFingerprint: document.SourceFingerprint, Position: &position,
+				}
+				return model, selector, symbol.ID
+			}
+			b.Fatalf("missing dense target function %q", lastName)
+			return nil, ProjectSelector{}, ""
+		}
+		b.Run(name+"/position-relations", func(b *testing.B) {
+			model, selector, symbolID := positionOperationSetup(b)
+			queryLimits := ProjectQueryLimits{MaxResults: 4, MaxNodes: 8, MaxEdges: 8, MaxDepth: 2}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				result, err := model.QueryRelations(context.Background(), RelationDefinitions,
+					selector, ProjectSelector{}, nil, queryLimits)
+				if err != nil || len(result.Records) != 1 ||
+					result.Records[0].Target.SymbolID != symbolID {
+					b.Fatalf("dense position relations: records=%+v err=%v", result.Records, err)
+				}
+			}
+		})
+		b.Run(name+"/position-context", func(b *testing.B) {
+			model, selector, symbolID := positionOperationSetup(b)
+			options := ProjectContextOptions{
+				BudgetBytes: 8192, MaxItems: 8, MaxDepth: 2,
+				BodyPolicy: ProjectContextSignaturesOnly,
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				result, err := model.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+				if err != nil || len(result.Candidates) == 0 ||
+					result.Candidates[0].Entity.SymbolID != symbolID {
+					b.Fatalf("dense position context: candidates=%+v err=%v", result.Candidates, err)
+				}
+			}
+		})
 	}
 }
 
