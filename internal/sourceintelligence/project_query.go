@@ -409,13 +409,7 @@ func (model *ProjectModel) referenceRecordsFrom(symbolID string, kind RelationKi
 			if reference.Source.SymbolID != symbolID || !filter.allows(reference.Evidence) || (predicate != nil && !predicate(reference.StructuralKind)) {
 				continue
 			}
-			if len(reference.Targets) == 0 {
-				result = append(result, RelationRecord{Kind: kind, Source: cloneRelationEntity(reference.Source), Target: RelationEntity{Language: reference.Source.Language, QualifiedName: reference.TargetSpelling, Range: cloneRangeValue(reference.Range)}, Evidence: reference.Evidence, Resolution: reference.Resolution})
-				continue
-			}
-			for _, target := range reference.Targets {
-				result = append(result, RelationRecord{Kind: kind, Source: cloneRelationEntity(reference.Source), Target: cloneRelationEntity(target), Evidence: reference.Evidence, Resolution: reference.Resolution})
-			}
+			result = appendForwardReferenceRecords(result, reference, kind)
 		}
 		return result
 	}
@@ -424,13 +418,19 @@ func (model *ProjectModel) referenceRecordsFrom(symbolID string, kind RelationKi
 		if reference.Source.SymbolID != symbolID || !filter.allows(reference.Evidence) || (predicate != nil && !predicate(reference.StructuralKind)) {
 			continue
 		}
-		if len(reference.Targets) == 0 {
-			result = append(result, RelationRecord{Kind: kind, Source: cloneRelationEntity(reference.Source), Target: RelationEntity{Language: reference.Source.Language, QualifiedName: reference.TargetSpelling, Range: cloneRangeValue(reference.Range)}, Evidence: reference.Evidence, Resolution: reference.Resolution})
-			continue
-		}
-		for _, target := range reference.Targets {
-			result = append(result, RelationRecord{Kind: kind, Source: cloneRelationEntity(reference.Source), Target: cloneRelationEntity(target), Evidence: reference.Evidence, Resolution: reference.Resolution})
-		}
+		result = appendForwardReferenceRecords(result, reference, kind)
+	}
+	return result
+}
+
+// appendForwardReferenceRecords preserves unresolved source spellings and the
+// exact resolved-target order for both indexed and linear source lookups.
+func appendForwardReferenceRecords(result []RelationRecord, reference ProjectReference, kind RelationKind) []RelationRecord {
+	if len(reference.Targets) == 0 {
+		return append(result, RelationRecord{Kind: kind, Source: cloneRelationEntity(reference.Source), Target: RelationEntity{Language: reference.Source.Language, QualifiedName: reference.TargetSpelling, Range: cloneRangeValue(reference.Range)}, Evidence: reference.Evidence, Resolution: reference.Resolution})
+	}
+	for _, target := range reference.Targets {
+		result = append(result, RelationRecord{Kind: kind, Source: cloneRelationEntity(reference.Source), Target: cloneRelationEntity(target), Evidence: reference.Evidence, Resolution: reference.Resolution})
 	}
 	return result
 }
