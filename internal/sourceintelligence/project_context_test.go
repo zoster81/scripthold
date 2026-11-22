@@ -560,6 +560,54 @@ func TestProjectContextAppendSelectorSeedsReusesRequestBuffer(t *testing.T) {
 	}
 }
 
+// Sorting may inspect model-owned declaration offsets without allocating
+// cloned signature/body ranges or mutating any retained symbol.
+func TestProjectContextSeedSortAvoidsOffsetClone(t *testing.T) {
+	const count = 128
+	seeds := make([]projectContextSeed, count)
+	for i := range seeds {
+		start := count - i
+		signature := OffsetRange{Start: start, End: start + 2}
+		body := OffsetRange{Start: start + 2, End: start + 4}
+		seeds[i] = projectContextSeed{record: projectSymbolRecord{
+			pathKey: "same.ts",
+			symbol: NormalizedSymbol{
+				ID:                 fmt.Sprintf("id-%03d", i),
+				declarationOffsets: OffsetRange{Start: start, End: start + 4},
+				signatureOffsets:   &signature,
+				bodyOffsets:        &body,
+			},
+		}}
+	}
+	allocs := testing.AllocsPerRun(30, func() { sortContextSeeds(seeds) })
+	if allocs > 10 {
+		t.Fatalf("seed sort cloned unused offset ranges: %.0f allocations", allocs)
+	}
+	for i := 1; i < len(seeds); i++ {
+		if seeds[i-1].record.symbol.declarationOffsets.Start > seeds[i].record.symbol.declarationOffsets.Start {
+			t.Fatalf("declaration order changed at %d", i)
+		}
+	}
+	for _, seed := range seeds {
+		if seed.record.symbol.signatureOffsets == nil || seed.record.symbol.bodyOffsets == nil {
+			t.Fatal("sorting corrupted immutable optional offsets")
+		}
+	}
+	// Canonical tie behavior is path, then declaration start, then symbol ID.
+	ties := []projectContextSeed{
+		{record: projectSymbolRecord{pathKey: "b", symbol: NormalizedSymbol{ID: "z", declarationOffsets: OffsetRange{Start: 1}}}},
+		{record: projectSymbolRecord{pathKey: "a", symbol: NormalizedSymbol{ID: "z", declarationOffsets: OffsetRange{Start: 2}}}},
+		{record: projectSymbolRecord{pathKey: "a", symbol: NormalizedSymbol{ID: "b", declarationOffsets: OffsetRange{Start: 1}}}},
+		{record: projectSymbolRecord{pathKey: "a", symbol: NormalizedSymbol{ID: "a", declarationOffsets: OffsetRange{Start: 1}}}},
+	}
+	sortContextSeeds(ties)
+	for i, want := range []string{"a", "b", "z", "z"} {
+		if ties[i].record.symbol.ID != want {
+			t.Fatalf("seed tie ordering at %d: %s instead of %s", i, ties[i].record.symbol.ID, want)
+		}
+	}
+}
+
 func TestProjectContextRootSymbolsPreserveParentKindsAndFallback(t *testing.T) {
 	record := func(id, parent string, kind SymbolKind) projectSymbolRecord {
 		return projectSymbolRecord{

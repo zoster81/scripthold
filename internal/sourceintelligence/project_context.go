@@ -685,10 +685,10 @@ func sortContextSeeds(values []projectContextSeed) {
 		if left.pathKey != right.pathKey {
 			return left.pathKey < right.pathKey
 		}
-		leftDecl, _, _, _ := left.symbol.SourceOffsets()
-		rightDecl, _, _, _ := right.symbol.SourceOffsets()
-		if leftDecl.Start != rightDecl.Start {
-			return leftDecl.Start < rightDecl.Start
+		// The declaration offsets are immutable inside the model. The public
+		// accessor clones optional signature/body offsets we do not use here.
+		if left.symbol.declarationOffsets.Start != right.symbol.declarationOffsets.Start {
+			return left.symbol.declarationOffsets.Start < right.symbol.declarationOffsets.Start
 		}
 		return left.symbol.ID < right.symbol.ID
 	})

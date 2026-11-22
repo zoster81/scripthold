@@ -616,6 +616,20 @@ func BenchmarkProjectContextFlatPath(b *testing.B) {
 				}
 			}
 		})
+		b.Run(fmt.Sprintf("symbols-%d/sort-seeds", count), func(b *testing.B) {
+			seeds, err := model.contextSeedsForSelector(selector)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				sortContextSeeds(seeds)
+				if len(seeds) != len(records) {
+					b.Fatalf("seed count changed: %d", len(seeds))
+				}
+			}
+		})
 		b.Run(fmt.Sprintf("symbols-%d/roots", count), func(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
