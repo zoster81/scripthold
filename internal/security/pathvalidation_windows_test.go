@@ -240,6 +240,64 @@ func TestWindowsExtendedPathPrefixesPreserveAllowedBoundaries(t *testing.T) {
 	}
 }
 
+// BenchmarkWindowsPathNormalizationSameFixture compares the former and
+// current Windows normalization pipelines on identical real filesystem paths.
+// It is a diagnostic only; the legacy result must never authorize access.
+func BenchmarkWindowsPathNormalizationSameFixture(b *testing.B) {
+	root := b.TempDir()
+	deep := filepath.Join(root, "nested", "deeper")
+	if err := os.MkdirAll(deep, 0o700); err != nil {
+		b.Fatal(err)
+	}
+	file := filepath.Join(deep, "source.go")
+	if err := os.WriteFile(file, []byte("package sample\n"), 0o600); err != nil {
+		b.Fatal(err)
+	}
+
+	legacy := func(path string) string {
+		path = strings.Trim(path, "\"' \t\n")
+		path = filepath.Clean(path)
+		if expanded, err := expandWindowsLongPathAllowMissing(path); err == nil {
+			path = expanded
+		}
+		path = filepath.Clean(path)
+		if len(path) >= 2 && path[1] == ':' {
+			path = strings.ToUpper(path[:1]) + path[1:]
+		}
+		return path
+	}
+	for _, fixture := range []struct {
+		name string
+		path string
+	}{
+		{name: "root", path: root},
+		{name: "nested-file", path: file},
+	} {
+		want := legacy(fixture.path)
+		if got := normalizePath(fixture.path); got != want {
+			b.Fatalf("ordinary-path normalization diverged for %q: legacy %q, current %q", fixture.name, want, got)
+		}
+		for _, method := range []struct {
+			name string
+			fn   func(string) string
+		}{
+			{name: "legacy", fn: legacy},
+			{name: "current", fn: normalizePath},
+			{name: "legacy-repeat", fn: legacy},
+		} {
+			b.Run(fixture.name+"/"+method.name, func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					if got := method.fn(fixture.path); got != want {
+						b.Fatalf("normalization changed: %q", got)
+					}
+				}
+			})
+		}
+	}
+}
+
 func windowsShortPathForTest(t *testing.T, path string) string {
 	t.Helper()
 	ptr, err := windows.UTF16PtrFromString(path)
