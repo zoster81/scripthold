@@ -6,6 +6,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ### Fixed
 
+- Exact, kind-filtered `source_query` searches now retain embedded-language declarations such as PHP classes inside Blade templates, even when the project is large enough for indexed lookup. Mixed-language models use the original deterministic scan; single-language indexed searches, source fingerprints, result limits, and public response schemas remain unchanged. This fix is unreleased.
 - Windows allowed-root checks now recognize equivalent ordinary and extended-length (`\\?\`) absolute drive/UNC path spellings after 8.3 name expansion. Existing authorized files and missing descendants remain accessible through either spelling, while sibling paths and escaping junctions remain denied. The normal symlink/reparse resolution and revalidation boundaries are unchanged; this fix is unreleased.
 - Project source-query models now make an independent copy of each retained symbol's mutable modifiers and optional source ranges. Changes to caller-owned analysis facts after model construction can no longer alter those symbol records; public search results, indexes, and source-fingerprint checks remain unchanged.
 - `source_query.context` now bounds ancestry traversal when normalized source facts contain self-referential or cyclic parent IDs. Malformed ownership can no longer make context planning loop indefinitely; ordinary hierarchies, deterministic results, output budgets, and cancellation remain unchanged.

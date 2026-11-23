@@ -221,10 +221,10 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 }
 
 // exactSymbolCandidates reuses immutable name and qualified-name indexes for
-// sparse, kind-filtered exact searches. Original source spellings and dense
-// matches retain the full-scan path to preserve alias and ordering semantics.
+// sparse, kind-filtered exact searches. Original spellings, embedded-language
+// symbols and dense matches retain the full scan to preserve complete coverage.
 func (model *ProjectModel) exactSymbolCandidates(query string) ([]*projectSymbolRecord, bool) {
-	if model.hasSourceSpelling {
+	if model.hasSourceSpelling || model.hasMixedSymbolLanguage {
 		return nil, false
 	}
 	key := normalizeProjectReference(query)

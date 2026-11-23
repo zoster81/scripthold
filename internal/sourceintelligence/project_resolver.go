@@ -136,6 +136,7 @@ type ProjectModel struct {
 	symbolsByQualified        map[string][]*projectSymbolRecord
 	symbolsByName             map[string][]*projectSymbolRecord
 	hasSourceSpelling         bool
+	hasMixedSymbolLanguage    bool
 	symbolIndicesByFile       map[string]map[string]int
 	dependencies              []ProjectDependency
 	dependenciesBySource      map[string][]ProjectDependency
@@ -323,6 +324,9 @@ func (model *ProjectModel) buildSymbolTables(ctx context.Context, descriptors *p
 			record := &records[index]
 			if record.symbol.sourceSpelling != "" {
 				model.hasSourceSpelling = true
+			}
+			if record.languageID != file.languageID {
+				model.hasMixedSymbolLanguage = true
 			}
 			qualifiedIndex := record.languageID + "\x00" + record.qualifiedKey
 			nameIndex := record.languageID + "\x00" + record.nameKey

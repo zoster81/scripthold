@@ -810,6 +810,59 @@ func TestStructuralSearchKindFiltersMatchUnfilteredPublicProjection(t *testing.T
 	}
 }
 
+// A composite file may contain symbols from an embedded provider. Exact
+// kind-filtered searches must not lose them when the fast name index is active.
+func TestIndexedExactKindSearchIncludesEmbeddedLanguageSymbols(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source strings.Builder
+	for index := 0; index < 40; index++ {
+		fmt.Fprintf(&source, "<span id=\"node-%02d\"></span>\n", index)
+	}
+	source.WriteString("@php class EmbeddedService { public function run() {} } @endphp\n")
+	facts := projectResolverFacts(t, BladeAnalyzer{}, "project/views/example.blade.php", source.String())
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(model.symbolsByName) < 32 {
+		t.Fatalf("fixture must enable exact lookup index: %d symbols", len(model.symbolsByName))
+	}
+	if model.hasSourceSpelling {
+		t.Fatal("fixture must exercise the indexed path, not the original-spelling fallback")
+	}
+	var embedded *projectSymbolRecord
+	for index := range model.symbolsByFile[projectPathKey(facts.Path)] {
+		record := &model.symbolsByFile[projectPathKey(facts.Path)][index]
+		if record.symbol.Name == "EmbeddedService" {
+			embedded = record
+			break
+		}
+	}
+	if embedded == nil || embedded.symbol.Kind != SymbolKindClass || embedded.languageID != "php" {
+		t.Fatalf("expected a PHP class inside the Blade file, got %+v", embedded)
+	}
+	if !model.hasMixedSymbolLanguage {
+		t.Fatal("composite file must be recognized before indexed exact searches")
+	}
+	if candidates, indexed := model.exactSymbolCandidates("EmbeddedService"); indexed || candidates != nil {
+		t.Fatalf("embedded-language search must use full scan: %+v indexed=%t", candidates, indexed)
+	}
+	for _, kinds := range [][]string{nil, {"class"}} {
+		result, err := model.StructuralSearch(context.Background(), ProjectSearchOptions{
+			Query: "EmbeddedService", Match: ProjectSearchExact, Kinds: kinds, MaxResults: 8,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Matches) != 1 || result.Matches[0].SymbolID != embedded.symbol.ID {
+			t.Fatalf("exact search with kinds=%v lost embedded PHP class: %+v", kinds, result.Matches)
+		}
+	}
+}
+
 func TestIndexedExactKindSearchCandidatesAndOriginalAliasFallback(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
