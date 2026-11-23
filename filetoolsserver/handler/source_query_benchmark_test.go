@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -121,6 +122,93 @@ func BenchmarkSourceQuerySelectionFingerprintStages(b *testing.B) {
 			}
 		}
 	})
+}
+
+// BenchmarkSourceQuerySelectionTraversalStages distinguishes traversal and
+// bounded-result retention using identical flat/nested directory fixtures.
+// The raw filepath.WalkDir baseline does NOT authorize paths and must never
+// replace the security-aware walk in a real tool.
+func BenchmarkSourceQuerySelectionTraversalStages(b *testing.B) {
+	for _, fixture := range []struct {
+		name   string
+		count  int
+		nested bool
+	}{
+		{name: "flat80", count: 80},
+		{name: "nested80", count: 80, nested: true},
+		{name: "flat256", count: 256},
+		{name: "nested256", count: 256, nested: true},
+	} {
+		b.Run(fixture.name, func(b *testing.B) {
+			root := b.TempDir()
+			for i := 0; i < fixture.count; i++ {
+				dir := root
+				if fixture.nested {
+					dir = filepath.Join(root, fmt.Sprintf("pkg%02d", i%8))
+					if err := os.MkdirAll(dir, 0o700); err != nil {
+						b.Fatal(err)
+					}
+				}
+				if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("Item%03d.java", i)),
+					[]byte("package bench; public class Item {}\n"), 0o600); err != nil {
+					b.Fatal(err)
+				}
+			}
+			h := NewHandler([]string{root})
+			ctx := context.Background()
+			roots := h.ResolvedAllowedDirs()
+			maximum := min(fixture.count, 80)
+			b.Run("raw-enumeration-diagnostic-only", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					count := 0
+					err := filepath.WalkDir(root, func(_ string, entry fs.DirEntry, err error) error {
+						if err != nil {
+							return err
+						}
+						if !entry.IsDir() {
+							count++
+						}
+						return nil
+					})
+					if err != nil || count != fixture.count {
+						b.Fatalf("raw enumeration: count=%d, error=%v", count, err)
+					}
+				}
+			})
+			b.Run("secure-walk", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					count := 0
+					err := filesystem.Walk(ctx, root, filesystem.WalkOptions{
+						ResolvedAllowedDirs: roots,
+					}, func(entry filesystem.Entry) (filesystem.WalkAction, error) {
+						if !entry.DirEntry.IsDir() {
+							count++
+						}
+						return filesystem.WalkContinue, nil
+					})
+					if err != nil || count != fixture.count {
+						b.Fatalf("secure walk: count=%d, error=%v", count, err)
+					}
+				}
+			})
+			b.Run("bounded-selection", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					files, truncated, err := h.collectBoundedSourceFiles(
+						ctx, []string{root}, nil, nil, false, maximum,
+					)
+					if err != nil || len(files) != maximum || truncated != (fixture.count > maximum) {
+						b.Fatalf("selection: files=%d, truncated=%t, error=%v", len(files), truncated, err)
+					}
+				}
+			})
+		})
+	}
 }
 
 // BenchmarkSourceQuerySelectionLayouts compares secure file selection across
