@@ -22,7 +22,7 @@ Binary/media interpretation and per-agent filesystem ACLs are outside the curren
 
 ## Current product state
 
-As of the 2026-11-20 publication, Scripthold **4.1.0** provides 36 tools, 3 guided prompts, 168 registered encodings, and 100 active source-intelligence providers. For the current published version, check [GitHub Releases](https://github.com/zoster81/scripthold/releases/latest). Version 4.1.0 ships bounded Source Intelligence structural repairs and opt-in concise projections (see the [4.1.0 changelog](../CHANGELOG.md#410---2026-11-20)); version 4.0.1 introduced compact read-only source navigation, and version 4.0 unified prepared mutations (see the [4.0 migration guide](MIGRATION_4.0.md)). New commits and releases do **not** automatically update an installed server.
+As of the **4.2.0 release (2026-11-23)**, Scripthold provides 36 tools, 3 guided prompts, 168 registered encodings, and 100 active source-intelligence providers. Version 4.2.0 improves source navigation performance, fixes selected path and source-query edge cases, and permits changing durable task worker concurrency between coordinated restarts. See the [4.2.0 changelog](../CHANGELOG.md#420---2026-11-23) and [latest GitHub Release](https://github.com/zoster81/scripthold/releases/latest) for details. Version 4.1.0 introduced bounded structural source repairs and concise projections; version 4.0 unified prepared mutations (see the [4.0 migration guide](MIGRATION_4.0.md)). Publishing a release does **not** automatically update an installed server.
 
 Current behavior is documented in [`ARCHITECTURE.md`](ARCHITECTURE.md) and [`TOOLS.md`](../TOOLS.md). Current/future work is in [`ROADMAP.md`](ROADMAP.md), and release changes are in [`CHANGELOG.md`](../CHANGELOG.md).
 

@@ -2,7 +2,7 @@
 
 Start with the [project README](../README.md) to install Scripthold and connect an MCP client. Use this page to find the right guide without reading the entire reference library.
 
-**Check which version applies.** [GitHub Releases](https://github.com/zoster81/scripthold/releases/latest) identifies the published software. The [Changelog](../CHANGELOG.md#unreleased) distinguishes fixes present only in the development tree. Publishing or committing a fix does not install it in a running server; use the [self-update guide](SELF_UPDATE.md) only for eligible standalone installations. Historical migration guides describe their named versions rather than today's behavior.
+**Current release: [4.2.0](https://github.com/zoster81/scripthold/releases/tag/v4.2.0) (2026-11-23).** The [Changelog](../CHANGELOG.md#420---2026-11-23) records its improvements; [Unreleased](../CHANGELOG.md#unreleased) contains only subsequent work. Publishing or committing a fix does not install it in a running server. Use the [self-update guide](SELF_UPDATE.md) for eligible standalone installations. Historical migration guides apply to their named versions.
 
 ## Use Scripthold
 
@@ -12,7 +12,7 @@ Start with the [project README](../README.md) to install Scripthold and connect 
 | Adopt, update, check, or recover a standalone binary | [Verified Self-update](SELF_UPDATE.md) |
 | Find an MCP tool, parameter, example, or error code | [Tool Reference](../TOOLS.md) |
 | Understand the supported source languages and analysis capabilities | [Language Capabilities](LANGUAGE_CAPABILITIES.md) |
-| See which languages passed development-only, real-project navigation checks | [Current original-project qualification](ROADMAP.md#current-original-project-qualification) |
+| Review source-language navigation checks and their limitations | [Original-project qualification](ROADMAP.md#current-original-project-qualification) |
 | Inspect or safely edit Markdown documents | [Markdown Intelligence](MARKDOWN_INTELLIGENCE.md) and the [Markdown tools](../TOOLS.md#markdown_read) |
 | Configure tasks that outlive an MCP request | [Durable Tasks](DURABLE_TASKS.md) |
 | Run the server over HTTP or through a trusted proxy | [HTTP Security](HTTP_SECURITY.md) |
@@ -25,7 +25,7 @@ Start with the [project README](../README.md) to install Scripthold and connect 
 | I want to… | Start here |
 |---|---|
 | Understand the project's scope and upstream relationship | [Project Direction](PROJECT_DIRECTION.md) |
-| Find planned work, completion criteria, and compatibility boundaries | [Roadmap](ROADMAP.md) and [milestone completion criteria](ROADMAP.md#milestone-completion-criteria) |
+| Find completed milestones, outstanding work, and compatibility boundaries | [Roadmap](ROADMAP.md), [R30 outcome](ROADMAP.md#completed-milestone-source-intelligence-refactor-420), and [qualification limits](ROADMAP.md#current-original-project-qualification) |
 | Resume supervised development safely | [Agent Guide](../AGENTS.md#resuming-a-supervised-development-session), [Roadmap](ROADMAP.md#next-work) and [Development Checklist](DEVELOPMENT_CHECKLIST.md) |
 | Submit a contribution and run the right tests | [Contributing](../CONTRIBUTING.md) and [Development Checklist](DEVELOPMENT_CHECKLIST.md) |
 | Report a security vulnerability privately | [Security Policy](../SECURITY.md) |
