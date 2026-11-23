@@ -7,7 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"golang.org/x/sys/windows"
 )
 
 func TestValidatePath_RejectsJunctionEscape(t *testing.T) {
@@ -97,6 +100,96 @@ func TestNormalizeWindowsFinalPath(t *testing.T) {
 			t.Errorf("normalizeWindowsFinalPath(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
+}
+
+// TestWindowsShortNameAliasesPreserveAllowedBoundaries exercises real NTFS 8.3
+// aliases where the volume exposes them. An unavailable alias is not evidence
+// that the long-path and short-path forms have equivalent security behavior.
+func TestWindowsShortNameAliasesPreserveAllowedBoundaries(t *testing.T) {
+	parent := t.TempDir()
+	allowed := filepath.Join(parent, "LongAllowedDirectoryName")
+	outside := filepath.Join(parent, "LongAllowedDirectoryName-sibling")
+	for _, dir := range []string{allowed, outside} {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	allowedFile := filepath.Join(allowed, "allowed.txt")
+	outsideFile := filepath.Join(outside, "outside.txt")
+	for _, path := range []string{allowedFile, outsideFile} {
+		if err := os.WriteFile(path, []byte("test"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	shortAllowed := windowsShortPathForTest(t, allowed)
+	if strings.EqualFold(filepath.Base(shortAllowed), filepath.Base(allowed)) {
+		t.Skip("8.3 alias generation is not enabled for the test directory")
+	}
+	shortOutside := windowsShortPathForTest(t, outside)
+	shortAllowedFile := filepath.Join(shortAllowed, filepath.Base(allowedFile))
+	shortOutsideFile := filepath.Join(shortOutside, filepath.Base(outsideFile))
+	shortMissing := filepath.Join(shortAllowed, "missing", "new.txt")
+
+	for _, configuredRoot := range []string{allowed, shortAllowed} {
+		t.Run(filepath.Base(configuredRoot), func(t *testing.T) {
+			set, err := NormalizeAllowedDirectorySet([]string{configuredRoot})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !IsPathWithinAllowedDirectories(shortAllowedFile, set.Requested) {
+				t.Fatal("8.3 child spelling was rejected at the requested-root boundary")
+			}
+			if IsPathWithinAllowedDirectories(shortOutsideFile, set.Requested) {
+				t.Fatal("8.3 sibling spelling escaped the requested-root boundary")
+			}
+
+			for _, candidate := range []string{allowedFile, shortAllowedFile, shortMissing} {
+				if _, err := ValidatePathWithAllowedDirectories(candidate, set.Requested, set.Resolved); err != nil {
+					t.Errorf("valid candidate %q: %v", candidate, err)
+				}
+			}
+			for _, candidate := range []string{outsideFile, shortOutsideFile} {
+				if _, err := ValidatePathWithAllowedDirectories(candidate, set.Requested, set.Resolved); !errors.Is(err, ErrPathDenied) {
+					t.Errorf("sibling %q: error = %v, want ErrPathDenied", candidate, err)
+				}
+			}
+			matcher := NewAllowedDirectoryMatcher(set.Resolved)
+			if _, ok := matcher.ResolvePathSafe(shortAllowedFile); !ok {
+				t.Error("resolved 8.3 child spelling was rejected by matcher")
+			}
+			if _, ok := matcher.ResolvePathSafe(shortOutsideFile); ok {
+				t.Error("resolved 8.3 sibling spelling escaped matcher")
+			}
+		})
+	}
+}
+
+func windowsShortPathForTest(t *testing.T, path string) string {
+	t.Helper()
+	ptr, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	buffer := make([]uint16, 512)
+	length, err := windows.GetShortPathName(ptr, &buffer[0], uint32(len(buffer)))
+	if err != nil {
+		t.Skipf("Windows short-path lookup is unavailable: %v", err)
+	}
+	if length >= uint32(len(buffer)) {
+		if length > maxLongPathUTF16Units {
+			t.Fatalf("short-path buffer requirement exceeds limit: %d", length)
+		}
+		buffer = make([]uint16, length+1)
+		length, err = windows.GetShortPathName(ptr, &buffer[0], uint32(len(buffer)))
+		if err != nil {
+			t.Fatalf("short-path retry failed: %v", err)
+		}
+	}
+	if length == 0 || length >= uint32(len(buffer)) {
+		t.Fatalf("invalid Windows short-path length: %d", length)
+	}
+	return windows.UTF16ToString(buffer[:length])
 }
 
 func createJunctionForTest(t *testing.T, target, link string) {
