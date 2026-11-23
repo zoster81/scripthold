@@ -9,12 +9,12 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zoster81/scripthold/internal/concurrency"
 	"github.com/zoster81/scripthold/internal/config"
 	"github.com/zoster81/scripthold/internal/filesystem"
-	"github.com/zoster81/scripthold/internal/operation"
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
 
@@ -24,31 +24,12 @@ type sourceQueryFingerprintProbe struct {
 }
 
 func (h *Handler) collectSourceQueryIndex(ctx context.Context, input SourceQueryInput, limits config.SourceConfig, maxFiles int) (sourceintelligence.ProjectIndexSelection, SourceQueryCoverage, *sourceintelligence.LanguageRegistry, *mcp.CallToolResult) {
-	validatedRoots := make([]string, 0, len(input.Paths))
-	for _, path := range input.Paths {
-		validated := h.ValidatePath(path)
-		if !validated.Ok() {
-			return sourceintelligence.ProjectIndexSelection{}, SourceQueryCoverage{}, nil, validated.Result
-		}
-		if _, err := os.Stat(validated.Path); err != nil {
-			return sourceintelligence.ProjectIndexSelection{}, SourceQueryCoverage{}, nil, errorResultFromError(operation.Wrap(operation.KindNotFound, "source_query", validated.Path, err))
-		}
-		validatedRoots = append(validatedRoots, validated.Path)
-	}
-	files, selectionTruncated, err := h.collectBoundedSourceFiles(ctx, validatedRoots, input.Includes, input.Excludes, shouldRespectGitignore(input.RespectGitignore), maxFiles)
-	if err != nil {
-		return sourceintelligence.ProjectIndexSelection{}, SourceQueryCoverage{}, nil, errorResultFromError(err)
-	}
-	var aggregateBytes int64
-	for _, path := range files {
-		info, statErr := os.Stat(path)
-		if statErr != nil || info.Size() > limits.MaxFileBytes {
-			continue
-		}
-		if info.Size() > limits.MaxAggregateBytes-aggregateBytes {
-			return sourceintelligence.ProjectIndexSelection{}, SourceQueryCoverage{}, nil, errorResultWithCode(ErrCodeLimit, fmt.Sprintf("selected source bytes exceed aggregate limit %d", limits.MaxAggregateBytes))
-		}
-		aggregateBytes += info.Size()
+	validatedRoots, files, selectionTruncated, failed := h.collectSourceRequestFiles(
+		ctx, "source_query", input.Paths, input.Includes, input.Excludes,
+		input.RespectGitignore, maxFiles, limits,
+	)
+	if failed != nil {
+		return sourceintelligence.ProjectIndexSelection{}, SourceQueryCoverage{}, nil, failed
 	}
 
 	registry, registryErr := sourceintelligence.DefaultLanguageRegistry()
@@ -98,7 +79,7 @@ func (h *Handler) collectSourceQueryIndex(ctx context.Context, input SourceQuery
 		}
 	}
 
-	analysisFingerprint, fingerprintErr := sourceintelligence.ProjectIndexAnalysisFingerprint(registry, sourceintelligence.ProjectIndexAnalysisConfig{
+	analysisFingerprint, fingerprintErr := h.sourceQueryAnalysisFingerprint(registry, sourceintelligence.ProjectIndexAnalysisConfig{
 		MaxFileBytes: limits.MaxFileBytes, MaxDecodedCharacters: h.maxDecodedCharacters(), MaxSymbols: limits.MaxSymbols, MaxSignatureBytes: limits.MaxSignatureBytes,
 		MaxDiagnostics: limits.MaxDiagnostics, MaxDetectorProbes: limits.MaxDetectorProbes, MaxNesting: limits.MaxNesting,
 		MaxProjectEdges: limits.MaxGraphEdges,
@@ -160,6 +141,36 @@ func (h *Handler) collectSourceQueryIndex(ctx context.Context, input SourceQuery
 		Truncated:              selection.Coverage.Truncated,
 	}
 	return selection, coverage, registry, nil
+}
+
+type sourceQueryAnalysisFingerprintCache struct {
+	mu          sync.Mutex
+	registry    *sourceintelligence.LanguageRegistry
+	config      sourceintelligence.ProjectIndexAnalysisConfig
+	fingerprint string
+}
+
+// sourceQueryAnalysisFingerprint caches one immutable registry/config fingerprint
+// per handler. The single-entry cache bounds retained state even if configuration
+// changes; file content fingerprints and generation checks still run per request.
+func (h *Handler) sourceQueryAnalysisFingerprint(
+	registry *sourceintelligence.LanguageRegistry,
+	config sourceintelligence.ProjectIndexAnalysisConfig,
+) (string, error) {
+	cache := &h.sourceAnalysisCache
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if cache.fingerprint != "" && cache.registry == registry && cache.config == config {
+		return cache.fingerprint, nil
+	}
+	fingerprint, err := sourceintelligence.ProjectIndexAnalysisFingerprint(registry, config)
+	if err != nil {
+		return "", err
+	}
+	cache.registry = registry
+	cache.config = config
+	cache.fingerprint = fingerprint
+	return fingerprint, nil
 }
 
 func (h *Handler) sourceQueryIndexManager() (*sourceintelligence.ProjectIndexManager, error) {

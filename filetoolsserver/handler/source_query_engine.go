@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -267,12 +266,12 @@ func (h *Handler) materializeSourceContext(ctx context.Context, plan sourceintel
 }
 
 func enforceSourceQueryOutputBudget(output SourceQueryOutput, maximum int64) error {
-	encoded, err := json.Marshal(output)
+	encodedBytes, err := sourceEncodedJSONBytes(output)
 	if err != nil {
 		return operation.Wrap(operation.KindUnknown, "source_query", "", err)
 	}
-	if int64(len(encoded)) > maximum {
-		return operation.Wrap(operation.KindLimit, "source_query", "", fmt.Errorf("source query output size %d exceeds limit %d", len(encoded), maximum))
+	if encodedBytes > maximum {
+		return operation.Wrap(operation.KindLimit, "source_query", "", fmt.Errorf("source query output size %d exceeds limit %d", encodedBytes, maximum))
 	}
 	return nil
 }

@@ -1,9 +1,96 @@
 package handler
 
 import (
+	"context"
 	"os"
+	"path/filepath"
+	"reflect"
 	"testing"
+
+	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
+
+// Original Blade projects must return the same source entities with and without
+// an exact kind filter, including their public symbol identities and ordering.
+func TestSourceQueryBladeIndependentOriginalKindFilteredParity(t *testing.T) {
+	corpus := os.Getenv("SCRIPTHOLD_SOURCE_CORPUS_ROOT")
+	if corpus == "" {
+		t.Skip("independent original Blade projects not configured")
+	}
+	for _, tc := range []struct {
+		name, project, query, primary string
+		line                          int
+		files                         []string
+	}{
+		{
+			name: "Akaunting dashboard", project: "blade74-akaunting-audit-selected",
+			query:   "show-more-actions-new-dashboard",
+			primary: "resources/views/common/dashboards/show.blade.php", line: 120,
+			files: []string{
+				"resources/views/common/dashboards/index.blade.php",
+				"resources/views/common/dashboards/show.blade.php",
+				"resources/views/common/items/index.blade.php",
+			},
+		},
+		{
+			name: "Breeze login form", project: "blade74-breeze-audit-selected",
+			query:   "email",
+			primary: "stubs/default/resources/views/auth/login.blade.php", line: 11,
+			files: []string{
+				"stubs/default/resources/views/auth/login.blade.php",
+				"stubs/default/resources/views/auth/register.blade.php",
+				"stubs/default/resources/views/auth/forgot-password.blade.php",
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := filepath.Join(corpus, tc.project)
+			paths := make([]string, 0, len(tc.files))
+			for _, rel := range tc.files {
+				path := filepath.Join(root, filepath.FromSlash(rel))
+				requireAdditionalOriginalFile(t, path)
+				paths = append(paths, path)
+			}
+			h := NewHandler([]string{root})
+			input := SourceQueryInput{
+				Operation: "search", Paths: paths, Language: "blade", Encoding: "utf-8",
+				Query: tc.query, Match: "exact", Mode: "structural",
+				MaxFiles: len(paths), MaxResults: 64,
+			}
+			query := func(in SourceQueryInput) SourceQueryOutput {
+				t.Helper()
+				failed, result, err := h.SourceQuery(context.Background(), nil, in)
+				if err != nil || failed != nil || result.Search == nil ||
+					!result.Coverage.CoverageComplete || result.Coverage.ResultsTruncated {
+					t.Fatalf("original Blade source search incomplete: error=%v failed=%+v result=%+v", err, failed, result)
+				}
+				return result
+			}
+			all := query(input)
+			input.Kinds = []string{"entity"}
+			filtered := query(input)
+			if all.Index.Fingerprint != filtered.Index.Fingerprint {
+				t.Fatalf("original Blade source generation changed: all=%+v filtered=%+v", all.Index, filtered.Index)
+			}
+			want := make([]SourceSearchMatch, 0, len(all.Search.Matches))
+			foundPrimary := false
+			for _, match := range all.Search.Matches {
+				if match.Kind != sourceintelligence.SymbolKindEntity {
+					continue
+				}
+				want = append(want, match)
+				if match.Name == tc.query && filepath.Clean(match.Path) == filepath.Join(root, filepath.FromSlash(tc.primary)) &&
+					match.Range.Start.Line == tc.line && match.SymbolID != "" {
+					foundPrimary = true
+				}
+			}
+			if !foundPrimary || !reflect.DeepEqual(filtered.Search.Matches, want) {
+				t.Fatalf("original Blade kind filter lost/changed source facts: foundPrimary=%t filtered=%+v want=%+v",
+					foundPrimary, filtered.Search.Matches, want)
+			}
+		})
+	}
+}
 
 // Provider 74 uses two further independent original Blade project origins:
 // Akaunting and Laravel Breeze. The selected templates were independently

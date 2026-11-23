@@ -145,12 +145,38 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 	collector := newProjectSearchTopK(options.MaxResults)
 	collector.after = options.After
 	collector.afterOccurrences = options.AfterOccurrences
+	filterKindFirst := len(kindFilter) != 0 && matchMode != ProjectSearchExact
+	filterKindAfterText := len(kindFilter) != 0 && matchMode == ProjectSearchExact
+	// Tiny models are cheaper to scan than to allocate request-local indexes.
+	if filterKindAfterText && len(model.symbolsByName) >= 32 {
+		if candidates, indexed := model.exactSymbolCandidates(query); indexed {
+			for _, record := range candidates {
+				if err := ctx.Err(); err != nil {
+					return ProjectSearchResult{}, operation.Wrap(operation.KindCancelled, "project_structural_search", record.entity.Path, err)
+				}
+				if _, ok := kindFilter[strings.ToLower(string(record.symbol.Kind))]; !ok || !acceptEvidence(record.symbol.Evidence) {
+					continue
+				}
+				if record.symbol.Name != query && record.symbol.QualifiedName != query {
+					continue
+				}
+				collector.append(projectSearchMatchForSymbol(*record))
+			}
+			if err := ctx.Err(); err != nil {
+				return ProjectSearchResult{}, operation.Wrap(operation.KindCancelled, "project_structural_search", "", err)
+			}
+			if options.After != nil && collector.seenAfter < options.AfterOccurrences {
+				return ProjectSearchResult{}, operation.New(operation.KindConflict, "structural search continuation no longer identifies its anchor")
+			}
+			return collector.result(), nil
+		}
+	}
 	for _, pathKey := range model.fileOrder {
 		if err := ctx.Err(); err != nil {
 			return ProjectSearchResult{}, operation.Wrap(operation.KindCancelled, "project_structural_search", model.files[pathKey].facts.Path, err)
 		}
 		for _, record := range model.symbolsByFile[pathKey] {
-			if len(kindFilter) > 0 {
+			if filterKindFirst {
 				if _, ok := kindFilter[strings.ToLower(string(record.symbol.Kind))]; !ok {
 					continue
 				}
@@ -160,7 +186,12 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 				!(matchMode == ProjectSearchExact && record.symbol.MatchesOriginalName(query))) {
 				continue
 			}
-			collector.append(ProjectSearchMatch{Path: record.entity.Path, Language: record.entity.Language, Name: record.symbol.Name, Kind: record.symbol.Kind, QualifiedName: record.symbol.QualifiedName, Range: record.symbol.NameRange, SymbolID: record.entity.SymbolID, SourceFingerprint: record.entity.SourceFingerprint, Evidence: record.symbol.Evidence})
+			if filterKindAfterText {
+				if _, ok := kindFilter[strings.ToLower(string(record.symbol.Kind))]; !ok {
+					continue
+				}
+			}
+			collector.append(projectSearchMatchForSymbol(record))
 		}
 		if len(kindFilter) != 0 {
 			continue
@@ -187,6 +218,70 @@ func (model *ProjectModel) StructuralSearch(ctx context.Context, options Project
 		return ProjectSearchResult{}, operation.New(operation.KindConflict, "structural search continuation no longer identifies its anchor")
 	}
 	return collector.result(), nil
+}
+
+// exactSymbolCandidates reuses immutable name and qualified-name indexes for
+// sparse, kind-filtered exact searches. Original spellings, embedded-language
+// symbols and dense matches retain the full scan to preserve complete coverage.
+func (model *ProjectModel) exactSymbolCandidates(query string) ([]*projectSymbolRecord, bool) {
+	if model.hasSourceSpelling || model.hasMixedSymbolLanguage {
+		return nil, false
+	}
+	key := normalizeProjectReference(query)
+	if key == "" {
+		return nil, false
+	}
+	lowerKey := strings.ToLower(key)
+	seenLanguages := make(map[string]struct{})
+	seenRecords := make(map[*projectSymbolRecord]struct{})
+	const maxIndexedCandidates = 256
+	for _, pathKey := range model.fileOrder {
+		language := model.files[pathKey].languageID
+		if _, seen := seenLanguages[language]; seen {
+			continue
+		}
+		seenLanguages[language] = struct{}{}
+		keys := [2]string{language + "\x00" + key, language + "\x00" + lowerKey}
+		for index, lookup := range keys {
+			if index == 1 && keys[0] == keys[1] {
+				continue
+			}
+			for _, records := range [][]*projectSymbolRecord{model.symbolsByName[lookup], model.symbolsByQualified[lookup]} {
+				if len(records) > maxIndexedCandidates {
+					return nil, false
+				}
+				for _, record := range records {
+					seenRecords[record] = struct{}{}
+					if len(seenRecords) > maxIndexedCandidates {
+						return nil, false
+					}
+				}
+			}
+		}
+	}
+	candidates := make([]*projectSymbolRecord, 0, len(seenRecords))
+	for record := range seenRecords {
+		candidates = append(candidates, record)
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		left, right := candidates[i], candidates[j]
+		if left.pathKey != right.pathKey {
+			return left.pathKey < right.pathKey
+		}
+		if left.entity.QualifiedName != right.entity.QualifiedName {
+			return left.entity.QualifiedName < right.entity.QualifiedName
+		}
+		return left.entity.SymbolID < right.entity.SymbolID
+	})
+	return candidates, true
+}
+
+func projectSearchMatchForSymbol(record projectSymbolRecord) ProjectSearchMatch {
+	return ProjectSearchMatch{
+		Path: record.entity.Path, Language: record.entity.Language, Name: record.symbol.Name,
+		Kind: record.symbol.Kind, QualifiedName: record.symbol.QualifiedName, Range: record.symbol.NameRange,
+		SymbolID: record.entity.SymbolID, SourceFingerprint: record.entity.SourceFingerprint, Evidence: record.symbol.Evidence,
+	}
 }
 
 // QueryRelations executes one bounded project relationship query.
@@ -300,19 +395,17 @@ func (model *ProjectModel) resolveProjectSelector(selector ProjectSelector) (pro
 	case ProjectSelectorPath:
 		return projectQuerySelection{kind: selector.Kind, pathKey: pathKey, entity: model.fileEntity(pathKey)}, nil
 	case ProjectSelectorSymbol:
-		for _, record := range model.symbolsByFile[pathKey] {
-			if record.symbol.ID == selector.SymbolID {
-				return projectQuerySelection{kind: selector.Kind, pathKey: pathKey, entity: record.entity}, nil
-			}
+		if record, found := model.contextSymbolByID(pathKey, selector.SymbolID); found {
+			return projectQuerySelection{kind: selector.Kind, pathKey: pathKey, entity: record.entity}, nil
 		}
 		return projectQuerySelection{}, operation.Wrap(operation.KindNotFound, "resolve_project_selector", file.facts.Path, fmt.Errorf("symbol was not found"))
 	case ProjectSelectorPosition:
 		if selector.Position == nil || selector.Position.Line <= 0 || selector.Position.Column <= 0 {
 			return projectQuerySelection{}, operation.New(operation.KindInvalidInput, "position selector requires a positive position")
 		}
-		for index := range model.references {
+		for _, index := range model.referencesBySource[pathKey] {
 			reference := &model.references[index]
-			if projectPathKey(reference.Source.Path) == pathKey && rangeContainsPosition(reference.Range, *selector.Position) {
+			if rangeContainsPosition(reference.Range, *selector.Position) {
 				copy := *reference
 				return projectQuerySelection{kind: selector.Kind, pathKey: pathKey, entity: reference.Source, reference: &copy}, nil
 			}
@@ -380,9 +473,9 @@ func (model *ProjectModel) dependencyRecords(pathKey string, reverse bool, kind 
 
 func (model *ProjectModel) referenceRecordsTo(symbolID string, kind RelationKind, predicate func(string) bool, filter projectEvidenceFilter) []RelationRecord {
 	var result []RelationRecord
-	for _, reference := range model.referencesByTarget[symbolID] {
+	_ = model.forEachReverseReference(symbolID, func(reference ProjectReference) error {
 		if !filter.allows(reference.Evidence) || (predicate != nil && !predicate(reference.StructuralKind)) {
-			continue
+			return nil
 		}
 		for _, target := range reference.Targets {
 			if target.SymbolID != symbolID {
@@ -390,23 +483,42 @@ func (model *ProjectModel) referenceRecordsTo(symbolID string, kind RelationKind
 			}
 			result = append(result, RelationRecord{Kind: kind, Source: cloneRelationEntity(reference.Source), Target: cloneRelationEntity(target), Evidence: reference.Evidence, Resolution: reference.Resolution})
 		}
-	}
+		return nil
+	})
 	return result
 }
 
 func (model *ProjectModel) referenceRecordsFrom(symbolID string, kind RelationKind, predicate func(string) bool, filter projectEvidenceFilter) []RelationRecord {
 	var result []RelationRecord
-	for _, reference := range model.references {
+	if model.referencesBySourceID == nil {
+		// Retain the direct scan on small models; a per-reference callback
+		// costs more than the scan it replaces for sparse projects.
+		for _, reference := range model.references {
+			if reference.Source.SymbolID != symbolID || !filter.allows(reference.Evidence) || (predicate != nil && !predicate(reference.StructuralKind)) {
+				continue
+			}
+			result = appendForwardReferenceRecords(result, reference, kind)
+		}
+		return result
+	}
+	for _, index := range model.referencesBySourceID[symbolID] {
+		reference := model.references[index]
 		if reference.Source.SymbolID != symbolID || !filter.allows(reference.Evidence) || (predicate != nil && !predicate(reference.StructuralKind)) {
 			continue
 		}
-		if len(reference.Targets) == 0 {
-			result = append(result, RelationRecord{Kind: kind, Source: cloneRelationEntity(reference.Source), Target: RelationEntity{Language: reference.Source.Language, QualifiedName: reference.TargetSpelling, Range: cloneRangeValue(reference.Range)}, Evidence: reference.Evidence, Resolution: reference.Resolution})
-			continue
-		}
-		for _, target := range reference.Targets {
-			result = append(result, RelationRecord{Kind: kind, Source: cloneRelationEntity(reference.Source), Target: cloneRelationEntity(target), Evidence: reference.Evidence, Resolution: reference.Resolution})
-		}
+		result = appendForwardReferenceRecords(result, reference, kind)
+	}
+	return result
+}
+
+// appendForwardReferenceRecords preserves unresolved source spellings and the
+// exact resolved-target order for both indexed and linear source lookups.
+func appendForwardReferenceRecords(result []RelationRecord, reference ProjectReference, kind RelationKind) []RelationRecord {
+	if len(reference.Targets) == 0 {
+		return append(result, RelationRecord{Kind: kind, Source: cloneRelationEntity(reference.Source), Target: RelationEntity{Language: reference.Source.Language, QualifiedName: reference.TargetSpelling, Range: cloneRangeValue(reference.Range)}, Evidence: reference.Evidence, Resolution: reference.Resolution})
+	}
+	for _, target := range reference.Targets {
+		result = append(result, RelationRecord{Kind: kind, Source: cloneRelationEntity(reference.Source), Target: cloneRelationEntity(target), Evidence: reference.Evidence, Resolution: reference.Resolution})
 	}
 	return result
 }
@@ -925,7 +1037,8 @@ type projectSearchTopK struct {
 
 func newProjectSearchTopK(maximum int) *projectSearchTopK {
 	return &projectSearchTopK{
-		matches: make(projectSearchWorstHeap, 0, minInt(maximum, 256)),
+		// Keep an empty, non-nil result without reserving a large heap up front.
+		matches: make(projectSearchWorstHeap, 0),
 		maximum: maximum,
 	}
 }
@@ -943,6 +1056,18 @@ func (collector *projectSearchTopK) append(value ProjectSearchMatch) {
 		}
 	}
 	if len(collector.matches) < collector.maximum {
+		if cap(collector.matches) == 0 {
+			capacity := minInt(collector.maximum, 256)
+			if capacity >= 16 {
+				capacity = 1
+			}
+			collector.matches = make(projectSearchWorstHeap, 0, capacity)
+		} else if cap(collector.matches) == 1 && collector.maximum >= 16 {
+			// Grow once to the original bound after a second accepted match.
+			expanded := make(projectSearchWorstHeap, len(collector.matches), minInt(collector.maximum, 256))
+			copy(expanded, collector.matches)
+			collector.matches = expanded
+		}
 		collector.matches = append(collector.matches, value)
 		// Repair only the new leaf; avoid boxing retained matches in heap.Push.
 		heap.Fix(&collector.matches, len(collector.matches)-1)

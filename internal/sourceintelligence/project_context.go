@@ -51,11 +51,16 @@ type projectContextSeed struct {
 	required   bool
 }
 
+type projectContextKey struct {
+	pathKey  string
+	symbolID string
+}
+
 type projectContextPlanner struct {
 	model   *ProjectModel
 	options ProjectContextOptions
 	plan    ProjectContextPlan
-	seen    map[string]struct{}
+	seen    map[projectContextKey]struct{}
 	roots   map[string][]projectSymbolRecord
 }
 
@@ -85,17 +90,27 @@ func (model *ProjectModel) PlanContext(ctx context.Context, targets []ProjectSel
 		return ProjectContextPlan{}, operation.New(operation.KindInvalidInput, "unknown project context body policy")
 	}
 
+	if len(targets) == 1 {
+		if plan, eligible, err := model.planFlatPathContext(ctx, targets[0], options); eligible {
+			return plan, err
+		}
+	} else {
+		if plan, eligible, err := model.planFlatMultiPathContext(ctx, targets, options); eligible {
+			return plan, err
+		}
+	}
+
 	seeds := make([]projectContextSeed, 0, len(targets))
 	pathTargets := make([]string, 0, len(targets))
 	for _, selector := range targets {
 		if err := ctx.Err(); err != nil {
 			return ProjectContextPlan{}, operation.Wrap(operation.KindCancelled, "plan_project_context", selector.Path, err)
 		}
-		resolved, err := model.contextSeedsForSelector(selector)
+		var err error
+		seeds, err = model.appendContextSeedsForSelector(seeds, selector)
 		if err != nil {
 			return ProjectContextPlan{}, err
 		}
-		seeds = append(seeds, resolved...)
 		if selector.Kind == ProjectSelectorPath {
 			pathTargets = append(pathTargets, projectPathKey(selector.Path))
 		}
@@ -107,10 +122,44 @@ func (model *ProjectModel) PlanContext(ctx context.Context, targets []ProjectSel
 	sort.Strings(pathTargets)
 	pathTargets = deduplicateStrings(pathTargets)
 
+	candidateCapacity := min(options.MaxItems, len(seeds)+8)
+	if len(targets) == 1 && len(pathTargets) == 1 &&
+		options.MaxItems >= 128 && options.BudgetBytes/512 >= options.MaxItems {
+		// Count only distinct directly imported files. The hint is request-local
+		// and may overestimate, but cannot grow beyond the configured item cap.
+		estimated := len(seeds)
+		visited := map[string]struct{}{pathTargets[0]: {}}
+		for _, dependency := range model.dependenciesBySource[pathTargets[0]] {
+			for _, target := range dependency.Targets {
+				key := projectPathKey(target.Path)
+				if _, exists := visited[key]; exists {
+					continue
+				}
+				visited[key] = struct{}{}
+				// Only parentless declarations are a safe lower-bound hint;
+				// nested declarations can greatly outnumber context roots.
+				for _, record := range model.symbolsByFile[key] {
+					if record.symbol.ParentID == "" {
+						estimated++
+					}
+					if estimated >= options.MaxItems {
+						break
+					}
+				}
+				if estimated >= options.MaxItems {
+					break
+				}
+			}
+			if estimated >= options.MaxItems {
+				break
+			}
+		}
+		candidateCapacity = max(candidateCapacity, min(options.MaxItems, estimated))
+	}
 	planner := projectContextPlanner{
 		model: model, options: options,
-		plan: ProjectContextPlan{Candidates: make([]ProjectContextCandidate, 0, min(options.MaxItems, len(seeds)+8))},
-		seen: make(map[string]struct{}),
+		plan: ProjectContextPlan{Candidates: make([]ProjectContextCandidate, 0, candidateCapacity)},
+		seen: make(map[projectContextKey]struct{}),
 	}
 	for _, seed := range seeds {
 		if err := planner.add(seed.record, ContextTarget, 1, seed.evidence, seed.resolution, seed.required); err != nil {
@@ -132,7 +181,258 @@ func (model *ProjectModel) PlanContext(ctx context.Context, targets []ProjectSel
 	return planner.plan, nil
 }
 
+// planFlatPathContext avoids copying full symbol records when an oversized,
+// single-file context has no parents, structural references or dependencies.
+// All other requests continue through the general context planner.
+func (model *ProjectModel) planFlatPathContext(ctx context.Context, selector ProjectSelector, options ProjectContextOptions) (ProjectContextPlan, bool, error) {
+	if selector.Kind != ProjectSelectorPath || options.MaxItems > 256 {
+		return ProjectContextPlan{}, false, nil
+	}
+	pathKey := projectPathKey(selector.Path)
+	file, exists := model.files[pathKey]
+	if !exists || selector.Path == "" || selector.SourceFingerprint != file.facts.SourceFingerprint {
+		return ProjectContextPlan{}, false, nil
+	}
+	records := model.symbolsByFile[pathKey]
+	if len(records) <= options.MaxItems*3 ||
+		len(model.references) != 0 || len(model.referencesByTarget) != 0 ||
+		len(model.referencesByTargetIndices) != 0 ||
+		len(model.dependenciesBySource[pathKey]) != 0 ||
+		len(model.dependentsByTarget[pathKey]) != 0 {
+		return ProjectContextPlan{}, false, nil
+	}
+	// The general root selector filters nested records and re-sorts records
+	// that are not strictly ordered. Neither case is safe for this shortcut.
+	// When declaration offsets are also sorted, iterate the model directly.
+	orderedByOffset := true
+	for i := range records {
+		if records[i].pathKey != pathKey || records[i].symbol.ParentID != "" ||
+			(i > 0 && !projectSymbolRecordLess(records[i-1], records[i])) {
+			return ProjectContextPlan{}, false, nil
+		}
+		if i > 0 {
+			previous, current := records[i-1].symbol, records[i].symbol
+			if previous.declarationOffsets.Start > current.declarationOffsets.Start ||
+				(previous.declarationOffsets.Start == current.declarationOffsets.Start && previous.ID >= current.ID) {
+				orderedByOffset = false
+			}
+		}
+	}
+	planner := projectContextPlanner{
+		model: model, options: options,
+		plan: ProjectContextPlan{Candidates: make([]ProjectContextCandidate, 0, min(options.MaxItems, len(records)+8))},
+		seen: make(map[projectContextKey]struct{}),
+	}
+	if orderedByOffset {
+		for _, record := range records {
+			if err := planner.add(record, ContextTarget, 1, record.symbol.Evidence, ResolutionResolved, false); err != nil {
+				return ProjectContextPlan{}, true, err
+			}
+			if planner.flatTargetsComplete() {
+				break
+			}
+		}
+	} else {
+		indices := make([]int, len(records))
+		for i := range indices {
+			indices[i] = i
+		}
+		sort.Slice(indices, func(i, j int) bool {
+			left, right := records[indices[i]], records[indices[j]]
+			if left.symbol.declarationOffsets.Start != right.symbol.declarationOffsets.Start {
+				return left.symbol.declarationOffsets.Start < right.symbol.declarationOffsets.Start
+			}
+			return left.symbol.ID < right.symbol.ID
+		})
+		for _, index := range indices {
+			record := records[index]
+			if err := planner.add(record, ContextTarget, 1, record.symbol.Evidence, ResolutionResolved, false); err != nil {
+				return ProjectContextPlan{}, true, err
+			}
+			if planner.flatTargetsComplete() {
+				break
+			}
+		}
+	}
+	// In the general route, deeper dependency traversal checks cancellation
+	// after every seed has been offered to the bounded planner.
+	if err := ctx.Err(); err != nil {
+		return ProjectContextPlan{}, true, operation.Wrap(operation.KindCancelled, "plan_project_context", file.facts.Path, err)
+	}
+	return planner.plan, true, nil
+}
+
+// planFlatMultiPathContext visits already ordered immutable records without
+// allocating and sorting one full seed copy per path. Only independent flat
+// files are eligible; all related, nested or ambiguous models use the general
+// planner, which preserves their complete context graph behavior.
+func (model *ProjectModel) planFlatMultiPathContext(ctx context.Context, selectors []ProjectSelector, options ProjectContextOptions) (ProjectContextPlan, bool, error) {
+	if len(selectors) < 2 || len(selectors) > 64 || options.MaxItems > 256 ||
+		len(model.dependencies) != 0 || len(model.dependenciesBySource) != 0 ||
+		len(model.dependentsByTarget) != 0 || len(model.references) != 0 ||
+		len(model.referencesByTarget) != 0 || len(model.referencesByTargetIndices) != 0 ||
+		len(model.referencesBySource) != 0 || len(model.referencesBySourceID) != 0 ||
+		len(model.definitionsByReference) != 0 {
+		return ProjectContextPlan{}, false, nil
+	}
+	paths := make([]string, 0, len(selectors))
+	visited := make(map[string]struct{}, len(selectors))
+	total := 0
+	for _, selector := range selectors {
+		if err := ctx.Err(); err != nil {
+			return ProjectContextPlan{}, true, operation.Wrap(operation.KindCancelled, "plan_project_context", selector.Path, err)
+		}
+		if selector.Kind != ProjectSelectorPath || selector.Path == "" {
+			return ProjectContextPlan{}, false, nil
+		}
+		pathKey := projectPathKey(selector.Path)
+		file, exists := model.files[pathKey]
+		if !exists || selector.SourceFingerprint != file.facts.SourceFingerprint {
+			return ProjectContextPlan{}, false, nil
+		}
+		if _, exists := visited[pathKey]; exists {
+			return ProjectContextPlan{}, false, nil
+		}
+		visited[pathKey] = struct{}{}
+		records := model.symbolsByFile[pathKey]
+		if len(records) == 0 {
+			return ProjectContextPlan{}, false, nil
+		}
+		for index := range records {
+			record := records[index]
+			if record.pathKey != pathKey || record.symbol.ParentID != "" ||
+				(index > 0 && !projectSymbolRecordLess(records[index-1], record)) {
+				return ProjectContextPlan{}, false, nil
+			}
+			if index > 0 {
+				previous := records[index-1].symbol
+				if previous.declarationOffsets.Start > record.symbol.declarationOffsets.Start ||
+					(previous.declarationOffsets.Start == record.symbol.declarationOffsets.Start && previous.ID >= record.symbol.ID) {
+					return ProjectContextPlan{}, false, nil
+				}
+			}
+		}
+		total += len(records)
+		paths = append(paths, pathKey)
+	}
+	if total <= options.MaxItems*4 {
+		return ProjectContextPlan{}, false, nil
+	}
+	sort.Strings(paths)
+	planner := projectContextPlanner{
+		model: model, options: options,
+		plan: ProjectContextPlan{Candidates: make([]ProjectContextCandidate, 0, min(options.MaxItems, total))},
+		seen: make(map[projectContextKey]struct{}),
+	}
+	for _, pathKey := range paths {
+		for _, record := range model.symbolsByFile[pathKey] {
+			if err := planner.add(record, ContextTarget, 1, record.symbol.Evidence, ResolutionResolved, false); err != nil {
+				return ProjectContextPlan{}, true, err
+			}
+			if planner.flatTargetsComplete() {
+				break
+			}
+		}
+		if planner.flatTargetsComplete() {
+			break
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return ProjectContextPlan{}, true, operation.Wrap(operation.KindCancelled, "plan_project_context", "", err)
+	}
+	return planner.plan, true, nil
+}
+
+// All remaining flat targets are nonrequired; once the item limit is
+// conclusively exceeded, later targets cannot alter this plan.
+func (planner *projectContextPlanner) flatTargetsComplete() bool {
+	return len(planner.plan.Candidates) >= planner.options.MaxItems && planner.plan.Truncated
+}
+
+// appendContextSeedsForSelector writes path roots directly into the request's
+// seed slice, avoiding a second full copy of large immutable model records.
+func (model *ProjectModel) appendContextSeedsForSelector(seeds []projectContextSeed, selector ProjectSelector) ([]projectContextSeed, error) {
+	if selector.Kind != ProjectSelectorPath {
+		resolved, err := model.contextSeedsForSelector(selector)
+		if err != nil {
+			return nil, err
+		}
+		return append(seeds, resolved...), nil
+	}
+	pathKey := projectPathKey(selector.Path)
+	file, ok := model.files[pathKey]
+	if !ok || selector.Path == "" {
+		return nil, operation.Wrap(operation.KindNotFound, "resolve_project_context_selector", selector.Path, fmt.Errorf("project file was not found"))
+	}
+	if selector.SourceFingerprint != file.facts.SourceFingerprint {
+		return nil, operation.Wrap(operation.KindConflict, "resolve_project_context_selector", file.facts.Path, fmt.Errorf("source fingerprint is stale"))
+	}
+	records := model.symbolsByFile[pathKey]
+	flatSorted := true
+	for index := range records {
+		if records[index].symbol.ParentID != "" ||
+			(index > 0 && !projectSymbolRecordLess(records[index-1], records[index])) {
+			flatSorted = false
+			break
+		}
+	}
+	rootCount := len(records)
+	var kindByID map[string]SymbolKind
+	if !flatSorted {
+		kindByID = make(map[string]SymbolKind, len(records))
+		for _, record := range records {
+			kindByID[record.symbol.ID] = record.symbol.Kind
+		}
+		rootCount = 0
+		for _, record := range records {
+			if record.symbol.ParentID == "" || isContextRootContainer(kindByID[record.symbol.ParentID]) {
+				rootCount++
+			}
+		}
+		if rootCount == 0 {
+			rootCount = len(records)
+		}
+	}
+	if cap(seeds)-len(seeds) < rootCount {
+		needed := len(seeds) + rootCount
+		capacity := needed
+		// Amortize repeated path selectors without retaining scratch between
+		// requests. Bound speculative reserve relative to the latest path so
+		// a tiny file after a large file cannot double memory consumption.
+		if prior := cap(seeds); prior > 0 && prior <= int(^uint(0)>>1)/2 && prior*2 > needed {
+			spare := prior*2 - needed
+			if rootCount <= int(^uint(0)>>1)/4 && spare > 4*rootCount {
+				spare = 4 * rootCount
+			}
+			capacity = needed + spare
+		}
+		grown := make([]projectContextSeed, len(seeds), capacity)
+		copy(grown, seeds)
+		seeds = grown
+	}
+	start := len(seeds)
+	for _, record := range records {
+		if !flatSorted && rootCount != len(records) && record.symbol.ParentID != "" &&
+			!isContextRootContainer(kindByID[record.symbol.ParentID]) {
+			continue
+		}
+		seeds = append(seeds, projectContextSeed{record: record, evidence: record.symbol.Evidence, resolution: ResolutionResolved})
+	}
+	if !flatSorted {
+		// Preserve the legacy per-path root order without allocating a second
+		// full-sized slice of immutable symbol records.
+		added := seeds[start:]
+		sort.Slice(added, func(i, j int) bool {
+			return projectSymbolRecordLess(added[i].record, added[j].record)
+		})
+	}
+	return seeds, nil
+}
+
 func (model *ProjectModel) contextSeedsForSelector(selector ProjectSelector) ([]projectContextSeed, error) {
+	if selector.Kind == ProjectSelectorPath {
+		return model.appendContextSeedsForSelector(nil, selector)
+	}
 	pathKey := projectPathKey(selector.Path)
 	file, ok := model.files[pathKey]
 	if !ok || selector.Path == "" {
@@ -143,13 +443,6 @@ func (model *ProjectModel) contextSeedsForSelector(selector ProjectSelector) ([]
 	}
 
 	switch selector.Kind {
-	case ProjectSelectorPath:
-		records := model.contextRootSymbols(pathKey)
-		seeds := make([]projectContextSeed, 0, len(records))
-		for _, record := range records {
-			seeds = append(seeds, projectContextSeed{record: record, evidence: record.symbol.Evidence, resolution: ResolutionResolved})
-		}
-		return seeds, nil
 	case ProjectSelectorSymbol:
 		record, ok := model.contextSymbolByID(pathKey, selector.SymbolID)
 		if !ok {
@@ -160,8 +453,9 @@ func (model *ProjectModel) contextSeedsForSelector(selector ProjectSelector) ([]
 		if selector.Position == nil || selector.Position.Line <= 0 || selector.Position.Column <= 0 {
 			return nil, operation.New(operation.KindInvalidInput, "position selector requires a positive position")
 		}
-		for _, reference := range model.references {
-			if projectPathKey(reference.Source.Path) != pathKey || !rangeContainsPosition(reference.Range, *selector.Position) {
+		for _, index := range model.referencesBySource[pathKey] {
+			reference := model.references[index]
+			if !rangeContainsPosition(reference.Range, *selector.Position) {
 				continue
 			}
 			if len(reference.Targets) > 0 {
@@ -198,7 +492,7 @@ func (planner *projectContextPlanner) add(record projectSymbolRecord, reason Con
 }
 
 func (planner *projectContextPlanner) addWithPolicy(record projectSymbolRecord, reason ContextReason, priority int, evidence SymbolEvidence, resolution ResolutionState, required bool, bodyPolicy ProjectContextBodyPolicy) error {
-	key := record.pathKey + "\x00" + record.symbol.ID
+	key := projectContextKey{pathKey: record.pathKey, symbolID: record.symbol.ID}
 	if _, exists := planner.seen[key]; exists {
 		return nil
 	}
@@ -267,39 +561,58 @@ func validContextOffsets(value OffsetRange) bool {
 	return value.Start >= 0 && value.End > value.Start
 }
 
+// visitContextAncestors centralizes cycle and cancellation protection for both
+// context consumers without allocating an intermediate ancestry slice.
+func (model *ProjectModel) visitContextAncestors(ctx context.Context, current projectSymbolRecord, visit func(projectSymbolRecord) error) error {
+	visited := make(map[string]struct{})
+	for current.symbol.ParentID != "" {
+		if err := ctx.Err(); err != nil {
+			return operation.Wrap(operation.KindCancelled, "plan_project_context", current.entity.Path, err)
+		}
+		if _, seen := visited[current.symbol.ParentID]; seen {
+			break
+		}
+		visited[current.symbol.ParentID] = struct{}{}
+		parent, ok := model.contextSymbolByID(current.pathKey, current.symbol.ParentID)
+		if !ok {
+			break
+		}
+		if err := visit(parent); err != nil {
+			return err
+		}
+		current = parent
+	}
+	return nil
+}
+
 func (planner *projectContextPlanner) addEnclosing(ctx context.Context, seeds []projectContextSeed) error {
 	for _, seed := range seeds {
-		current := seed.record
-		visited := make(map[string]struct{})
-		for current.symbol.ParentID != "" {
-			if err := ctx.Err(); err != nil {
-				return operation.Wrap(operation.KindCancelled, "plan_project_context", current.entity.Path, err)
-			}
-			if _, seen := visited[current.symbol.ParentID]; seen {
-				break
-			}
-			visited[current.symbol.ParentID] = struct{}{}
-			parent, ok := planner.model.contextSymbolByID(current.pathKey, current.symbol.ParentID)
-			if !ok {
-				break
-			}
-			if err := planner.add(parent, ContextEnclosing, 2, parent.symbol.Evidence, ResolutionResolved, false); err != nil {
-				return err
-			}
-			current = parent
+		if err := planner.model.visitContextAncestors(ctx, seed.record, func(parent projectSymbolRecord) error {
+			return planner.add(parent, ContextEnclosing, 2, parent.symbol.Evidence, ResolutionResolved, false)
+		}); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
 func (planner *projectContextPlanner) addDirectDependencies(ctx context.Context, seeds []projectContextSeed) error {
+	// Every dependency into the same file visits the same root symbols.
+	// The first occurrence determines their evidence; later visits cannot
+	// add new candidates because the planner already tracks each symbol.
+	visitedTargets := make(map[string]struct{})
 	for _, pathKey := range contextSeedPathKeys(seeds) {
 		for _, dependency := range planner.model.dependenciesBySource[pathKey] {
 			if err := ctx.Err(); err != nil {
 				return operation.Wrap(operation.KindCancelled, "plan_project_context", dependency.Source.Path, err)
 			}
 			for _, target := range dependency.Targets {
-				for _, record := range planner.contextRootSymbols(projectPathKey(target.Path)) {
+				targetPathKey := projectPathKey(target.Path)
+				if _, visited := visitedTargets[targetPathKey]; visited {
+					continue
+				}
+				visitedTargets[targetPathKey] = struct{}{}
+				for _, record := range planner.contextRootSymbols(targetPathKey) {
 					if err := planner.add(record, ContextDirectDependency, 3, dependency.Evidence, dependency.Resolution, false); err != nil {
 						return err
 					}
@@ -311,17 +624,25 @@ func (planner *projectContextPlanner) addDirectDependencies(ctx context.Context,
 }
 
 func (planner *projectContextPlanner) addReverseAndTypeRelations(ctx context.Context, seeds []projectContextSeed, pathTargets []string) error {
+	if len(planner.model.references) == 0 && len(planner.model.referencesByTarget) == 0 &&
+		len(planner.model.referencesByTargetIndices) == 0 {
+		// No structural edge can contribute either direction. Retain reverse
+		// dependency context without allocating or sorting the seed graph.
+		if len(seeds) > 0 {
+			if err := ctx.Err(); err != nil {
+				return operation.Wrap(operation.KindCancelled, "plan_project_context", seeds[0].record.entity.Path, err)
+			}
+		}
+		return planner.addReverseDependents(pathTargets)
+	}
 	records := make([]projectSymbolRecord, 0, len(seeds)*2)
 	for _, seed := range seeds {
 		records = append(records, seed.record)
-		current := seed.record
-		for current.symbol.ParentID != "" {
-			parent, ok := planner.model.contextSymbolByID(current.pathKey, current.symbol.ParentID)
-			if !ok {
-				break
-			}
+		if err := planner.model.visitContextAncestors(ctx, seed.record, func(parent projectSymbolRecord) error {
 			records = append(records, parent)
-			current = parent
+			return nil
+		}); err != nil {
+			return err
 		}
 	}
 	sortProjectSymbolRecords(records)
@@ -332,12 +653,32 @@ func (planner *projectContextPlanner) addReverseAndTypeRelations(ctx context.Con
 	for _, record := range records {
 		outgoing[record.symbol.ID] = nil
 	}
-	for index, reference := range planner.model.references {
+	appendOutgoing := func(index int) {
+		reference := planner.model.references[index]
 		if !isInheritanceStructuralKind(reference.StructuralKind) && !isImplementationStructuralKind(reference.StructuralKind) {
-			continue
+			return
 		}
 		if _, wanted := outgoing[reference.Source.SymbolID]; wanted {
 			outgoing[reference.Source.SymbolID] = append(outgoing[reference.Source.SymbolID], index)
+		}
+	}
+	if len(planner.model.references) >= 32 && len(planner.model.referencesBySource) > 0 {
+		// Select each source file once, even when several seeds share it.
+		// Per-file indices retain global reference order. The later path check
+		// still separates identical symbol IDs belonging to different files.
+		seenPaths := make(map[string]struct{}, len(records))
+		for _, record := range records {
+			if _, seen := seenPaths[record.pathKey]; seen {
+				continue
+			}
+			seenPaths[record.pathKey] = struct{}{}
+			for _, index := range planner.model.referencesBySource[record.pathKey] {
+				appendOutgoing(index)
+			}
+		}
+	} else {
+		for index := range planner.model.references {
+			appendOutgoing(index)
 		}
 	}
 
@@ -359,18 +700,23 @@ func (planner *projectContextPlanner) addReverseAndTypeRelations(ctx context.Con
 				}
 			}
 		}
-		for _, reference := range planner.model.referencesByTarget[record.symbol.ID] {
+		if err := planner.model.forEachReverseReference(record.symbol.ID, func(reference ProjectReference) error {
 			if !isInheritanceStructuralKind(reference.StructuralKind) && !isImplementationStructuralKind(reference.StructuralKind) {
-				continue
+				return nil
 			}
 			sourceRecord, ok := planner.model.contextSymbolByID(projectPathKey(reference.Source.Path), reference.Source.SymbolID)
 			if ok {
-				if err := planner.add(sourceRecord, ContextReverseOrTypeRelation, 6, reference.Evidence, reference.Resolution, false); err != nil {
-					return err
-				}
+				return planner.add(sourceRecord, ContextReverseOrTypeRelation, 6, reference.Evidence, reference.Resolution, false)
 			}
+			return nil
+		}); err != nil {
+			return err
 		}
 	}
+	return planner.addReverseDependents(pathTargets)
+}
+
+func (planner *projectContextPlanner) addReverseDependents(pathTargets []string) error {
 	for _, pathKey := range pathTargets {
 		for _, dependency := range planner.model.dependentsByTarget[pathKey] {
 			for _, record := range planner.contextRootSymbols(projectPathKey(dependency.Source.Path)) {
@@ -494,7 +840,24 @@ func (planner *projectContextPlanner) contextRootSymbols(pathKey string) []proje
 	if records, ok := planner.roots[pathKey]; ok {
 		return records
 	}
-	records := planner.model.contextRootSymbols(pathKey)
+	// Model records are sorted and immutable after construction. Borrow them
+	// only when filtering cannot change the root set; planner callers read
+	// these records without modifying the retained model backing array.
+	records := planner.model.symbolsByFile[pathKey]
+	flat := len(records) > 0
+	for _, record := range records {
+		if record.symbol.ParentID != "" {
+			flat = false
+			break
+		}
+	}
+	if flat {
+		// Do not let an append through this borrowed view write into spare
+		// capacity of the model's immutable backing array.
+		records = records[:len(records):len(records)]
+	} else {
+		records = planner.model.contextRootSymbols(pathKey)
+	}
 	if planner.roots == nil {
 		planner.roots = make(map[string][]projectSymbolRecord)
 	}
@@ -507,9 +870,23 @@ func (model *ProjectModel) contextRootSymbols(pathKey string) []projectSymbolRec
 	if len(records) == 0 {
 		return nil
 	}
-	byID := make(map[string]projectSymbolRecord, len(records))
+	// The immutable model already sorts its records. A flat file with strictly
+	// increasing sort keys needs neither a parent map nor a copied root slice.
+	// Preserve the original sort for ties, unsorted input and nested ownership.
+	flatSorted := true
+	for index := range records {
+		if records[index].symbol.ParentID != "" ||
+			(index > 0 && !projectSymbolRecordLess(records[index-1], records[index])) {
+			flatSorted = false
+			break
+		}
+	}
+	if flatSorted {
+		return records[:len(records):len(records)]
+	}
+	kindByID := make(map[string]SymbolKind, len(records))
 	for _, record := range records {
-		byID[record.symbol.ID] = record
+		kindByID[record.symbol.ID] = record.symbol.Kind
 	}
 	result := make([]projectSymbolRecord, 0, len(records))
 	for _, record := range records {
@@ -517,8 +894,8 @@ func (model *ProjectModel) contextRootSymbols(pathKey string) []projectSymbolRec
 			result = append(result, record)
 			continue
 		}
-		parent, ok := byID[record.symbol.ParentID]
-		if ok && isContextRootContainer(parent.symbol.Kind) {
+		parentKind, ok := kindByID[record.symbol.ParentID]
+		if ok && isContextRootContainer(parentKind) {
 			result = append(result, record)
 		}
 	}
@@ -539,7 +916,15 @@ func isContextRootContainer(kind SymbolKind) bool {
 }
 
 func (model *ProjectModel) contextSymbolByID(pathKey, symbolID string) (projectSymbolRecord, bool) {
-	for _, record := range model.symbolsByFile[pathKey] {
+	records := model.symbolsByFile[pathKey]
+	if byID, indexed := model.symbolIndicesByFile[pathKey]; indexed {
+		index, found := byID[symbolID]
+		if found {
+			return records[index], true
+		}
+		return projectSymbolRecord{}, false
+	}
+	for _, record := range records {
 		if record.symbol.ID == symbolID {
 			return record, true
 		}
@@ -562,10 +947,10 @@ func sortContextSeeds(values []projectContextSeed) {
 		if left.pathKey != right.pathKey {
 			return left.pathKey < right.pathKey
 		}
-		leftDecl, _, _, _ := left.symbol.SourceOffsets()
-		rightDecl, _, _, _ := right.symbol.SourceOffsets()
-		if leftDecl.Start != rightDecl.Start {
-			return leftDecl.Start < rightDecl.Start
+		// The declaration offsets are immutable inside the model. The public
+		// accessor clones optional signature/body offsets we do not use here.
+		if left.symbol.declarationOffsets.Start != right.symbol.declarationOffsets.Start {
+			return left.symbol.declarationOffsets.Start < right.symbol.declarationOffsets.Start
 		}
 		return left.symbol.ID < right.symbol.ID
 	})

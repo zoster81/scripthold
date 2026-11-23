@@ -188,6 +188,7 @@ type indexedProjectFile struct {
 
 type projectIndexGeneration struct {
 	evidence            IndexEvidence
+	registry            *LanguageRegistry
 	analysisFingerprint string
 	files               map[string]*indexedProjectFile
 	unavailable         []ProjectIndexUnavailableFile
@@ -263,17 +264,17 @@ func (manager *ProjectIndexManager) Refresh(ctx context.Context, registry *Langu
 	if len(state.generations) > 0 {
 		latest = state.generations[0]
 	}
-	if projectIndexCanReuseCurrent(latest, options.AnalysisFingerprint, snapshots, snapshotKeys, unavailable, options.SelectionTruncated) {
+	if projectIndexCanReuseCurrent(latest, registry, options.AnalysisFingerprint, snapshots, snapshotKeys, unavailable, options.SelectionTruncated) {
 		return projectIndexSelection(state.generations, latest, options.Binding, ProjectIndexRefreshStats{ReusedFiles: len(snapshots)})
 	}
 
-	files, stats, changed, err := refreshProjectIndexFiles(ctx, latest, snapshots, snapshotKeys, unavailable, options)
+	files, stats, changed, err := refreshProjectIndexFiles(ctx, registry, latest, snapshots, snapshotKeys, unavailable, options)
 	if err != nil {
 		return ProjectIndexSelection{}, err
 	}
 	currentGeneration := latest
 	if changed {
-		currentGeneration, err = manager.buildProjectIndexGeneration(ctx, registry, files, unavailable, snapshots, snapshotKeys, options)
+		currentGeneration, err = manager.buildProjectIndexGeneration(ctx, registry, latest, files, unavailable, snapshots, snapshotKeys, options)
 		if err != nil {
 			return ProjectIndexSelection{}, err
 		}
@@ -285,8 +286,8 @@ func (manager *ProjectIndexManager) Refresh(ctx context.Context, registry *Langu
 	return projectIndexSelection(state.generations, currentGeneration, options.Binding, stats)
 }
 
-func projectIndexCanReuseCurrent(latest *projectIndexGeneration, analysisFingerprint string, snapshots []ProjectIndexFileSnapshot, snapshotKeys []string, unavailable []ProjectIndexUnavailableFile, truncated bool) bool {
-	if latest == nil || latest.analysisFingerprint != analysisFingerprint || len(snapshots) != len(latest.files) || latest.coverage.Truncated != truncated || !equivalentProjectIndexUnavailable(unavailable, latest.unavailable) {
+func projectIndexCanReuseCurrent(latest *projectIndexGeneration, registry *LanguageRegistry, analysisFingerprint string, snapshots []ProjectIndexFileSnapshot, snapshotKeys []string, unavailable []ProjectIndexUnavailableFile, truncated bool) bool {
+	if latest == nil || latest.registry != registry || latest.analysisFingerprint != analysisFingerprint || len(snapshots) != len(latest.files) || latest.coverage.Truncated != truncated || !equivalentProjectIndexUnavailable(unavailable, latest.unavailable) {
 		return false
 	}
 	for index, snapshot := range snapshots {
@@ -298,8 +299,8 @@ func projectIndexCanReuseCurrent(latest *projectIndexGeneration, analysisFingerp
 	return true
 }
 
-func refreshProjectIndexFiles(ctx context.Context, latest *projectIndexGeneration, snapshots []ProjectIndexFileSnapshot, snapshotKeys []string, unavailable []ProjectIndexUnavailableFile, options ProjectIndexRefreshOptions) (map[string]*indexedProjectFile, ProjectIndexRefreshStats, bool, error) {
-	forceAnalyze := latest == nil || latest.analysisFingerprint != options.AnalysisFingerprint
+func refreshProjectIndexFiles(ctx context.Context, registry *LanguageRegistry, latest *projectIndexGeneration, snapshots []ProjectIndexFileSnapshot, snapshotKeys []string, unavailable []ProjectIndexUnavailableFile, options ProjectIndexRefreshOptions) (map[string]*indexedProjectFile, ProjectIndexRefreshStats, bool, error) {
+	forceAnalyze := latest == nil || latest.registry != registry || latest.analysisFingerprint != options.AnalysisFingerprint
 	files := make(map[string]*indexedProjectFile, len(snapshots))
 	stats := ProjectIndexRefreshStats{}
 	changed := forceAnalyze || latest == nil || len(snapshots) != lenGenerationFiles(latest) ||
@@ -342,15 +343,26 @@ func refreshProjectIndexFiles(ctx context.Context, latest *projectIndexGeneratio
 	return files, stats, changed, nil
 }
 
-func (manager *ProjectIndexManager) buildProjectIndexGeneration(ctx context.Context, registry *LanguageRegistry, files map[string]*indexedProjectFile, unavailable []ProjectIndexUnavailableFile, snapshots []ProjectIndexFileSnapshot, snapshotKeys []string, options ProjectIndexRefreshOptions) (*projectIndexGeneration, error) {
+func (manager *ProjectIndexManager) buildProjectIndexGeneration(ctx context.Context, registry *LanguageRegistry, previous *projectIndexGeneration, files map[string]*indexedProjectFile, unavailable []ProjectIndexUnavailableFile, snapshots []ProjectIndexFileSnapshot, snapshotKeys []string, options ProjectIndexRefreshOptions) (*projectIndexGeneration, error) {
 	facts := make([]ProjectFileFacts, 0, len(files))
+	var reusable map[string][]projectSymbolRecord
+	if previous != nil && previous.registry == registry && previous.analysisFingerprint == options.AnalysisFingerprint {
+		for _, key := range snapshotKeys {
+			if current := files[key]; current != nil && current == previous.files[key] {
+				if reusable == nil {
+					reusable = make(map[string][]projectSymbolRecord)
+				}
+				reusable[key] = previous.model.symbolsByFile[key]
+			}
+		}
+	}
 	for index := range snapshots {
 		current := files[snapshotKeys[index]]
 		if current != nil && current.facts != nil {
 			facts = append(facts, *current.facts)
 		}
 	}
-	model, err := BuildProjectModel(ctx, registry, facts, options.ResolverLimits)
+	model, err := buildProjectModelWithReusableRecords(ctx, registry, facts, options.ResolverLimits, reusable)
 	if err != nil {
 		return nil, err
 	}
@@ -361,6 +373,7 @@ func (manager *ProjectIndexManager) buildProjectIndexGeneration(ctx context.Cont
 	}
 	return &projectIndexGeneration{
 		evidence:            IndexEvidence{Generation: generation, Fingerprint: fingerprint, Staleness: IndexCurrent},
+		registry:            registry,
 		analysisFingerprint: options.AnalysisFingerprint,
 		files:               files,
 		unavailable:         unavailable,

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/zoster81/scripthold/internal/operation"
@@ -94,6 +95,11 @@ type projectSymbolRecord struct {
 	nameKey      string
 }
 
+type projectRelationSourceKey struct {
+	languageID string
+	lookup     string
+}
+
 type projectLanguageDescriptorCache struct {
 	registry *LanguageRegistry
 	byName   map[string]LanguageDescriptor
@@ -123,18 +129,24 @@ func (cache *projectLanguageDescriptorCache) resolve(name string) (LanguageDescr
 // It remains memory-only and may back retained process-local index generations;
 // persistent on-disk indexing is not introduced.
 type ProjectModel struct {
-	files                  map[string]projectFileRecord
-	filesByStem            map[string][]string
-	fileOrder              []string
-	symbolsByFile          map[string][]projectSymbolRecord
-	symbolsByQualified     map[string][]*projectSymbolRecord
-	symbolsByName          map[string][]*projectSymbolRecord
-	dependencies           []ProjectDependency
-	dependenciesBySource   map[string][]ProjectDependency
-	dependentsByTarget     map[string][]ProjectDependency
-	references             []ProjectReference
-	definitionsByReference map[string][]RelationEntity
-	referencesByTarget     map[string][]ProjectReference
+	files                     map[string]projectFileRecord
+	filesByStem               map[string][]string
+	fileOrder                 []string
+	symbolsByFile             map[string][]projectSymbolRecord
+	symbolsByQualified        map[string][]*projectSymbolRecord
+	symbolsByName             map[string][]*projectSymbolRecord
+	hasSourceSpelling         bool
+	hasMixedSymbolLanguage    bool
+	symbolIndicesByFile       map[string]map[string]int
+	dependencies              []ProjectDependency
+	dependenciesBySource      map[string][]ProjectDependency
+	dependentsByTarget        map[string][]ProjectDependency
+	references                []ProjectReference
+	definitionsByReference    map[string][]RelationEntity
+	referencesByTarget        map[string][]ProjectReference
+	referencesByTargetIndices map[string][]int
+	referencesBySource        map[string][]int
+	referencesBySourceID      map[string][]int
 }
 
 const defaultProjectResolutionCandidates = 64
@@ -142,6 +154,13 @@ const defaultProjectResolutionCandidates = 64
 // BuildProjectModel constructs deterministic symbol tables, dependency
 // adjacency, and resolved structural references from normalized analyzer facts.
 func BuildProjectModel(ctx context.Context, registry *LanguageRegistry, input []ProjectFileFacts, limits ProjectResolverLimits) (*ProjectModel, error) {
+	return buildProjectModelWithReusableRecords(ctx, registry, input, limits, nil)
+}
+
+// Reuse is restricted to sorted, immutable records from fingerprint-identical
+// files in the preceding generation. Global lookup and relationship state is
+// always reconstructed for the new complete project snapshot.
+func buildProjectModelWithReusableRecords(ctx context.Context, registry *LanguageRegistry, input []ProjectFileFacts, limits ProjectResolverLimits, reusable map[string][]projectSymbolRecord) (*ProjectModel, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -175,7 +194,7 @@ func BuildProjectModel(ctx context.Context, registry *LanguageRegistry, input []
 		dependenciesBySource:   make(map[string][]ProjectDependency),
 		dependentsByTarget:     make(map[string][]ProjectDependency),
 		definitionsByReference: make(map[string][]RelationEntity),
-		referencesByTarget:     make(map[string][]ProjectReference),
+		referencesBySource:     make(map[string][]int),
 	}
 
 	files := make([]projectModelInputFile, len(input))
@@ -225,7 +244,7 @@ func BuildProjectModel(ctx context.Context, registry *LanguageRegistry, input []
 		model.fileOrder = append(model.fileOrder, pathKey)
 	}
 
-	if err := model.buildSymbolTables(ctx, &descriptors); err != nil {
+	if err := model.buildSymbolTables(ctx, &descriptors, reusable); err != nil {
 		return nil, err
 	}
 	if err := model.buildDependencies(ctx, &descriptors, maxCandidates); err != nil {
@@ -237,43 +256,78 @@ func BuildProjectModel(ctx context.Context, registry *LanguageRegistry, input []
 	return model, nil
 }
 
-func (model *ProjectModel) buildSymbolTables(ctx context.Context, descriptors *projectLanguageDescriptorCache) error {
+func (model *ProjectModel) buildSymbolTables(ctx context.Context, descriptors *projectLanguageDescriptorCache, reusable map[string][]projectSymbolRecord) error {
 	for _, pathKey := range model.fileOrder {
 		file := model.files[pathKey]
-		records := make([]projectSymbolRecord, 0, len(file.facts.Analysis.Analysis.Symbols))
-		for _, symbol := range file.facts.Analysis.Analysis.Symbols {
-			if err := ctx.Err(); err != nil {
-				return operation.Wrap(operation.KindCancelled, "build_project_symbol_tables", file.facts.Path, err)
-			}
-			languageID := strings.TrimSpace(symbol.Language)
-			if languageID == "" {
-				languageID = file.languageID
-			}
-			descriptor, ok := descriptors.resolve(languageID)
-			if !ok && file.languageID == "classic-asp" &&
-				symbol.Analyzer == string(AnalyzerClassicASP) && languageID == "jscript" {
-				// Classic ASP exposes the original embedded language spelling.
-				// Resolve its syntax through the registered JavaScript provider
-				// without rewriting the source symbol or its safe selector.
-				descriptor, ok = descriptors.resolve("javascript")
-			}
-			if !ok {
-				continue
-			}
-			entity := relationEntityForSymbol(symbol, file.facts.SourceFingerprint)
-			records = append(records, projectSymbolRecord{
-				symbol: symbol, entity: entity, pathKey: pathKey, languageID: descriptor.ID,
-				qualifiedKey: projectSymbolLookupKey(descriptor, symbol.QualifiedName),
-				nameKey:      projectSymbolLookupKey(descriptor, symbol.Name),
-			})
+		if err := ctx.Err(); err != nil {
+			return operation.Wrap(operation.KindCancelled, "build_project_symbol_tables", file.facts.Path, err)
 		}
+		records, borrowed := reusable[pathKey]
+		if !borrowed {
+			records = make([]projectSymbolRecord, 0, len(file.facts.Analysis.Analysis.Symbols))
+			for _, symbol := range file.facts.Analysis.Analysis.Symbols {
+				if err := ctx.Err(); err != nil {
+					return operation.Wrap(operation.KindCancelled, "build_project_symbol_tables", file.facts.Path, err)
+				}
+				languageID := strings.TrimSpace(symbol.Language)
+				if languageID == "" {
+					languageID = file.languageID
+				}
+				descriptor, ok := descriptors.resolve(languageID)
+				if !ok && file.languageID == "classic-asp" &&
+					symbol.Analyzer == string(AnalyzerClassicASP) && languageID == "jscript" {
+					// Classic ASP exposes the original embedded language spelling.
+					// Resolve its syntax through the registered JavaScript provider
+					// without rewriting the source symbol or its safe selector.
+					descriptor, ok = descriptors.resolve("javascript")
+				}
+				if !ok {
+					continue
+				}
+				entity := relationEntityForSymbol(symbol, file.facts.SourceFingerprint)
+				records = append(records, projectSymbolRecord{
+					symbol: cloneNormalizedSymbol(symbol), entity: entity, pathKey: pathKey, languageID: descriptor.ID,
+					qualifiedKey: projectSymbolLookupKey(descriptor, symbol.QualifiedName),
+					nameKey:      projectSymbolLookupKey(descriptor, symbol.Name),
+				})
+			}
 
-		// Sort before publishing pointers: sorting after indexing would move values
-		// inside the backing array and make index keys reference the wrong records.
-		sortProjectSymbolRecords(records)
+			// Sort before publishing pointers: sorting after indexing would move values
+			// inside the backing array and make index keys reference the wrong records.
+			sortProjectSymbolRecords(records)
+		}
 		model.symbolsByFile[pathKey] = records
+		if len(records) >= 64 {
+			// Record the first sorted occurrence, preserving duplicate-ID selectors.
+			byID := make(map[string]int, len(records))
+			for index := range records {
+				if index%256 == 0 {
+					if err := ctx.Err(); err != nil {
+						return operation.Wrap(operation.KindCancelled, "build_project_symbol_tables", file.facts.Path, err)
+					}
+				}
+				if _, exists := byID[records[index].symbol.ID]; !exists {
+					byID[records[index].symbol.ID] = index
+				}
+			}
+			if model.symbolIndicesByFile == nil {
+				model.symbolIndicesByFile = make(map[string]map[string]int)
+			}
+			model.symbolIndicesByFile[pathKey] = byID
+		}
 		for index := range records {
+			if index%256 == 0 {
+				if err := ctx.Err(); err != nil {
+					return operation.Wrap(operation.KindCancelled, "build_project_symbol_tables", file.facts.Path, err)
+				}
+			}
 			record := &records[index]
+			if record.symbol.sourceSpelling != "" {
+				model.hasSourceSpelling = true
+			}
+			if record.languageID != file.languageID {
+				model.hasMixedSymbolLanguage = true
+			}
 			qualifiedIndex := record.languageID + "\x00" + record.qualifiedKey
 			nameIndex := record.languageID + "\x00" + record.nameKey
 			model.symbolsByQualified[qualifiedIndex] = append(model.symbolsByQualified[qualifiedIndex], record)
@@ -440,14 +494,42 @@ func (model *ProjectModel) dependencyPathMatches(file projectFileRecord, depende
 }
 
 func (model *ProjectModel) buildReferences(ctx context.Context, descriptors *projectLanguageDescriptorCache, maxCandidates int) error {
+	hasDuplicateReferenceIDs := false
 	for _, pathKey := range model.fileOrder {
 		file := model.files[pathKey]
 		descriptor, _ := descriptors.resolve(file.languageID)
+		// For dense files, group source candidates once using the already
+		// sorted canonical symbol records. The map is not retained in the model.
+		var sourceCandidates map[projectRelationSourceKey][]*projectSymbolRecord
+		if len(file.facts.Analysis.Relations) >= 32 && len(model.symbolsByFile[pathKey]) >= 32 {
+			sourceCandidates = make(map[projectRelationSourceKey][]*projectSymbolRecord, len(file.facts.Analysis.Relations))
+			for _, relation := range file.facts.Analysis.Relations {
+				key := projectRelationSourceKey{descriptor.ID, projectSymbolLookupKey(descriptor, relation.Source)}
+				sourceCandidates[key] = nil
+			}
+			records := model.symbolsByFile[pathKey]
+			for index := range records {
+				record := &records[index]
+				if !isRelationEndpointKind(record.symbol.Kind) {
+					continue
+				}
+				nameKey := projectRelationSourceKey{record.languageID, record.nameKey}
+				if _, wanted := sourceCandidates[nameKey]; wanted {
+					sourceCandidates[nameKey] = append(sourceCandidates[nameKey], record)
+				}
+				qualifiedKey := projectRelationSourceKey{record.languageID, record.qualifiedKey}
+				if qualifiedKey != nameKey {
+					if _, wanted := sourceCandidates[qualifiedKey]; wanted {
+						sourceCandidates[qualifiedKey] = append(sourceCandidates[qualifiedKey], record)
+					}
+				}
+			}
+		}
 		for _, relation := range file.facts.Analysis.Relations {
 			if err := ctx.Err(); err != nil {
 				return operation.Wrap(operation.KindCancelled, "resolve_project_reference", file.facts.Path, err)
 			}
-			source := model.resolveRelationSource(file, descriptor, relation)
+			source := model.resolveRelationSource(file, descriptor, relation, sourceCandidates)
 			targets, stage, err := model.resolveRelationTargets(file, descriptor, relation, maxCandidates)
 			if err != nil {
 				return err
@@ -471,31 +553,84 @@ func (model *ProjectModel) buildReferences(ctx context.Context, descriptors *pro
 				reference.Resolution = ResolutionAmbiguous
 			}
 			reference.ID = deterministicProjectReferenceID(reference)
+			if _, exists := model.definitionsByReference[reference.ID]; exists {
+				hasDuplicateReferenceIDs = true
+			}
 			model.references = append(model.references, reference)
-			model.definitionsByReference[reference.ID] = cloneRelationEntities(targets)
-			for _, target := range targets {
+			// Both model views own immutable targets; public accessors clone them.
+			// Keep the last value for repeated deterministic reference IDs.
+			model.definitionsByReference[reference.ID] = targets
+		}
+	}
+	// The existing unstable sort must operate on original per-target insertion
+	// order when distinct records share a deterministic ID and sort key.
+	if len(model.references) < 64 || hasDuplicateReferenceIDs {
+		model.referencesByTarget = make(map[string][]ProjectReference)
+		for index, reference := range model.references {
+			if index&255 == 0 {
+				if err := ctx.Err(); err != nil {
+					return operation.Wrap(operation.KindCancelled, "resolve_project_reference", reference.Source.Path, err)
+				}
+			}
+			for _, target := range reference.Targets {
 				if target.SymbolID != "" {
 					model.referencesByTarget[target.SymbolID] = append(model.referencesByTarget[target.SymbolID], reference)
 				}
 			}
 		}
+	} else {
+		model.referencesByTargetIndices = make(map[string][]int)
 	}
 	sortProjectReferences(model.references)
+	// The source-ID index shares sorted reference positions across dense models.
+	// The key intentionally has no file path: identical IDs in different files
+	// must retain the original cross-file query behavior.
+	if len(model.references) >= 64 {
+		model.referencesBySourceID = make(map[string][]int)
+	}
+	// Preserve the exact global reference order without duplicating the records.
+	for index := range model.references {
+		if index&255 == 0 {
+			if err := ctx.Err(); err != nil {
+				return operation.Wrap(operation.KindCancelled, "resolve_project_reference", model.references[index].Source.Path, err)
+			}
+		}
+		pathKey := projectPathKey(model.references[index].Source.Path)
+		model.referencesBySource[pathKey] = append(model.referencesBySource[pathKey], index)
+		if model.referencesByTargetIndices != nil {
+			for _, target := range model.references[index].Targets {
+				if target.SymbolID != "" {
+					model.referencesByTargetIndices[target.SymbolID] = append(model.referencesByTargetIndices[target.SymbolID], index)
+				}
+			}
+		}
+		if model.referencesBySourceID != nil {
+			if symbolID := model.references[index].Source.SymbolID; symbolID != "" {
+				model.referencesBySourceID[symbolID] = append(model.referencesBySourceID[symbolID], index)
+			}
+		}
+	}
 	for key := range model.referencesByTarget {
 		sortProjectReferences(model.referencesByTarget[key])
 	}
 	return nil
 }
 
-func (model *ProjectModel) resolveRelationSource(file projectFileRecord, descriptor LanguageDescriptor, relation StructuralRelation) RelationEntity {
+func (model *ProjectModel) resolveRelationSource(file projectFileRecord, descriptor LanguageDescriptor, relation StructuralRelation, sourceCandidates map[projectRelationSourceKey][]*projectSymbolRecord) RelationEntity {
 	lookup := projectSymbolLookupKey(descriptor, relation.Source)
-	candidates := make([]projectSymbolRecord, 0, 2)
-	for _, record := range model.symbolsByFile[file.pathKey] {
-		if record.languageID != descriptor.ID || !isRelationEndpointKind(record.symbol.Kind) {
-			continue
-		}
-		if record.qualifiedKey == lookup || record.nameKey == lookup {
-			candidates = append(candidates, record)
+	var candidates []*projectSymbolRecord
+	if sourceCandidates != nil {
+		candidates = sourceCandidates[projectRelationSourceKey{descriptor.ID, lookup}]
+	} else {
+		records := model.symbolsByFile[file.pathKey]
+		for index := range records {
+			record := &records[index]
+			if record.languageID != descriptor.ID || !isRelationEndpointKind(record.symbol.Kind) {
+				continue
+			}
+			if record.qualifiedKey == lookup || record.nameKey == lookup {
+				candidates = append(candidates, record)
+			}
 		}
 	}
 	if len(candidates) == 1 {
@@ -565,6 +700,25 @@ func (model *ProjectModel) sameFileCandidates(file projectFileRecord, descriptor
 	}
 
 	records := model.symbolsByFile[file.pathKey]
+	if len(records) >= 64 {
+		// A unique global hit cannot change local candidate precedence.
+		// Ambiguous buckets keep the original per-file scan and ordering.
+		var indexed []*projectSymbolRecord
+		if qualified != "" {
+			indexed = model.symbolsByQualified[descriptor.ID+"\x00"+qualified]
+		} else {
+			indexed = model.symbolsByName[descriptor.ID+"\x00"+target]
+		}
+		if len(indexed) <= 1 {
+			var result []*projectSymbolRecord
+			for _, record := range indexed {
+				if record.pathKey == file.pathKey && record.languageID == descriptor.ID && isRelationEndpointKind(record.symbol.Kind) {
+					result = append(result, record)
+				}
+			}
+			return result
+		}
+	}
 	var result []*projectSymbolRecord
 	for index := range records {
 		record := &records[index]
@@ -672,7 +826,38 @@ func (model *ProjectModel) ReferencesTo(symbolID string) []ProjectReference {
 	if model == nil {
 		return nil
 	}
-	return cloneProjectReferences(model.referencesByTarget[strings.TrimSpace(symbolID)])
+	symbolID = strings.TrimSpace(symbolID)
+	if model.referencesByTargetIndices != nil {
+		indices := model.referencesByTargetIndices[symbolID]
+		result := make([]ProjectReference, len(indices))
+		for index, referenceIndex := range indices {
+			reference := model.references[referenceIndex]
+			result[index] = reference
+			result[index].Source = cloneRelationEntity(reference.Source)
+			result[index].Targets = cloneRelationEntities(reference.Targets)
+		}
+		return result
+	}
+	return cloneProjectReferences(model.referencesByTarget[symbolID])
+}
+
+// forEachReverseReference keeps dense indexed and legacy tie-preserving
+// buckets in the same deterministic iteration contract.
+func (model *ProjectModel) forEachReverseReference(symbolID string, visit func(ProjectReference) error) error {
+	if model.referencesByTargetIndices != nil {
+		for _, index := range model.referencesByTargetIndices[symbolID] {
+			if err := visit(model.references[index]); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	for _, reference := range model.referencesByTarget[symbolID] {
+		if err := visit(reference); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Definitions returns the deterministic candidate definitions for one project
@@ -780,16 +965,19 @@ func sortRelationEntities(values []RelationEntity) {
 	})
 }
 
+func projectSymbolRecordLess(left, right projectSymbolRecord) bool {
+	if left.entity.Path != right.entity.Path {
+		return left.entity.Path < right.entity.Path
+	}
+	if left.entity.QualifiedName != right.entity.QualifiedName {
+		return left.entity.QualifiedName < right.entity.QualifiedName
+	}
+	return left.entity.SymbolID < right.entity.SymbolID
+}
+
 func sortProjectSymbolRecords(values []projectSymbolRecord) {
 	sort.Slice(values, func(i, j int) bool {
-		left, right := values[i], values[j]
-		if left.entity.Path != right.entity.Path {
-			return left.entity.Path < right.entity.Path
-		}
-		if left.entity.QualifiedName != right.entity.QualifiedName {
-			return left.entity.QualifiedName < right.entity.QualifiedName
-		}
-		return left.entity.SymbolID < right.entity.SymbolID
+		return projectSymbolRecordLess(values[i], values[j])
 	})
 }
 
@@ -914,6 +1102,19 @@ func normalizeProjectReference(value string) string {
 }
 
 func stripBalancedGenericArguments(value string) string {
+	// Retain the rune loop for Unicode and malformed UTF-8: it normalizes
+	// invalid bytes to replacement runes, unlike a raw string shortcut.
+	plainASCII := true
+	for index := 0; index < len(value); index++ {
+		char := value[index]
+		if char >= 0x80 || char == '<' || char == '>' {
+			plainASCII = false
+			break
+		}
+	}
+	if plainASCII {
+		return strings.TrimSpace(value)
+	}
 	var builder strings.Builder
 	depth := 0
 	for _, char := range value {
@@ -1011,17 +1212,25 @@ func validProjectFingerprint(value string) bool {
 
 func deterministicProjectReferenceID(reference ProjectReference) string {
 	hash := sha256.New()
-	parts := []string{
+	parts := [...]string{
 		reference.Source.Path, reference.Source.Language, reference.Source.SymbolID, reference.Source.QualifiedName,
 		reference.StructuralKind, reference.TargetSpelling,
-		fmt.Sprintf("%d", reference.Range.Start.Line), fmt.Sprintf("%d", reference.Range.Start.Column),
-		fmt.Sprintf("%d", reference.Range.End.Line), fmt.Sprintf("%d", reference.Range.End.Column),
 	}
 	var length [8]byte
 	for _, part := range parts {
 		binary.BigEndian.PutUint64(length[:], uint64(len(part)))
 		_, _ = hash.Write(length[:])
 		_, _ = hash.Write([]byte(part))
+	}
+	var decimal [20]byte
+	for _, value := range [...]int{
+		reference.Range.Start.Line, reference.Range.Start.Column,
+		reference.Range.End.Line, reference.Range.End.Column,
+	} {
+		digits := strconv.AppendInt(decimal[:0], int64(value), 10)
+		binary.BigEndian.PutUint64(length[:], uint64(len(digits)))
+		_, _ = hash.Write(length[:])
+		_, _ = hash.Write(digits)
 	}
 	return hex.EncodeToString(hash.Sum(nil))
 }

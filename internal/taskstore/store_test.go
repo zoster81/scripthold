@@ -282,12 +282,102 @@ func TestStoreRejectsPublicOverlap(t *testing.T) {
 	}
 }
 
+func TestStoreAllowsConcurrencyChangesAcrossRestarts(t *testing.T) {
+	base := canonicalTaskStoreTestDir(t)
+	public := filepath.Join(base, "public")
+	if err := os.Mkdir(public, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	originalLimits := testLimits()
+	originalLimits.MaxConcurrency = 4
+	store, err := Initialize(filepath.Join(base, "private-tasks"), []string{public}, originalLimits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admitted, err := store.Submit(context.Background(), shellRequest("concurrency-restart"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, concurrency := range []int{8, 12, 4} {
+		limits := originalLimits
+		limits.MaxConcurrency = concurrency
+		opened := []struct {
+			name string
+			open func() (*Store, error)
+		}{
+			{"frontend", func() (*Store, error) { return Open(store.root, []string{public}, limits) }},
+			{"worker", func() (*Store, error) { return Initialize(store.root, []string{public}, limits) }},
+			{"executor", func() (*Store, error) { return OpenExecutor(store.root, limits) }},
+		}
+		for _, candidate := range opened {
+			reopened, err := candidate.open()
+			if err != nil {
+				t.Fatalf("%s concurrency=%d: %v", candidate.name, concurrency, err)
+			}
+			if reopened.Limits() != limits {
+				t.Fatalf("%s concurrency=%d effective limits=%+v", candidate.name, concurrency, reopened.Limits())
+			}
+			task, err := reopened.Get(context.Background(), admitted.Task.ID)
+			if err != nil || task.ID != admitted.Task.ID || task.Status != StatusQueued {
+				t.Fatalf("%s concurrency=%d persisted task=%+v err=%v", candidate.name, concurrency, task, err)
+			}
+			if candidate.name == "frontend" {
+				repeated, err := reopened.Submit(context.Background(), shellRequest("concurrency-restart"))
+				if err != nil || !repeated.Duplicated || repeated.Task.ID != admitted.Task.ID {
+					t.Fatalf("concurrency=%d idempotent submission=%+v err=%v", concurrency, repeated, err)
+				}
+			}
+		}
+	}
+	var descriptorAfter descriptor
+	if err := readJSON(filepath.Join(store.root, descriptorName), &descriptorAfter, 16*1024); err != nil {
+		t.Fatal(err)
+	}
+	if descriptorAfter.Limits != originalLimits || descriptorAfter.Salt != store.descriptor.Salt {
+		t.Fatalf("durable descriptor changed during concurrency restarts: %+v", descriptorAfter)
+	}
+}
+
 func TestOpenRejectsChangedDurabilityPolicy(t *testing.T) {
 	store := newTestStore(t)
-	changed := store.limits
-	changed.MaxConcurrency++
-	if _, err := OpenExecutor(store.root, changed); err == nil || !strings.Contains(err.Error(), "descriptor") {
-		t.Fatalf("changed policy error = %v", err)
+	for _, change := range []struct {
+		name   string
+		mutate func(*Limits)
+	}{
+		{"queue", func(l *Limits) { l.MaxQueued++ }},
+		{"log", func(l *Limits) { l.MaxLogBytesPerStream++ }},
+		{"runtime", func(l *Limits) { l.MaxRuntimeSeconds++ }},
+		{"retention-days", func(l *Limits) { l.RetentionDays++ }},
+		{"retained-tasks", func(l *Limits) { l.MaxTerminal++ }},
+		{"retained-bytes", func(l *Limits) { l.MaxTotalBytes++ }},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			changed := store.limits
+			change.mutate(&changed)
+			if _, err := OpenExecutor(store.root, changed); err == nil || !strings.Contains(err.Error(), "descriptor") {
+				t.Fatalf("changed durability policy error = %v", err)
+			}
+		})
+	}
+}
+
+func TestOpenRejectsMalformedStoredConcurrency(t *testing.T) {
+	store := newTestStore(t)
+	path := filepath.Join(store.root, descriptorName)
+	for _, storedConcurrency := range []int{0, -1} {
+		corrupted := store.descriptor
+		corrupted.Limits.MaxConcurrency = storedConcurrency
+		data, err := json.Marshal(corrupted)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := OpenExecutor(store.root, store.limits); err == nil || !strings.Contains(err.Error(), "descriptor") {
+			t.Fatalf("stored concurrency=%d error=%v", storedConcurrency, err)
+		}
 	}
 }
 

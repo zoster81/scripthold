@@ -7,7 +7,70 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unsafe"
 )
+
+// BenchmarkProjectGenericNameNormalization isolates lexical generic stripping
+// from project-model construction and captures malformed/Unicode controls.
+func BenchmarkProjectGenericNameNormalization(b *testing.B) {
+	for _, item := range []struct {
+		name, input string
+	}{
+		{name: "plain-ascii", input: "project.Service.Handle"},
+		{name: "nested-generic", input: "Map<String, List<T>>.Handle"},
+		{name: "unicode", input: "Niño.方法"},
+		{name: "invalid-utf8", input: string([]byte{'a', 0xff, 'b'})},
+	} {
+		b.Run(item.name, func(b *testing.B) {
+			want := stripBalancedGenericArguments(item.input)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for index := 0; index < b.N; index++ {
+				if got := stripBalancedGenericArguments(item.input); got != want {
+					b.Fatalf("generic spelling changed: got %q, want %q", got, want)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkProjectGenericLongPrefixFallback compares the current ASCII guard
+// with the previous rune loop on long names whose special byte is near the end.
+func BenchmarkProjectGenericLongPrefixFallback(b *testing.B) {
+	for _, length := range []int{128, 4096} {
+		prefix := strings.Repeat("a", length)
+		for _, item := range []struct {
+			name, input string
+		}{
+			{name: "plain-ascii", input: prefix},
+			{name: "late-generic", input: prefix + "<T>"},
+			{name: "late-unicode", input: prefix + "é"},
+			{name: "late-invalid-utf8", input: prefix + string([]byte{0xff})},
+		} {
+			want := legacyStripBalancedGenericArguments(item.input)
+			if got := stripBalancedGenericArguments(item.input); got != want {
+				b.Fatalf("long %s/%d mismatch: got %q, want %q", item.name, length, got, want)
+			}
+			for _, implementation := range []struct {
+				name string
+				fn   func(string) string
+			}{
+				{name: "current", fn: stripBalancedGenericArguments},
+				{name: "legacy", fn: legacyStripBalancedGenericArguments},
+			} {
+				b.Run(fmt.Sprintf("%d/%s/%s", length, item.name, implementation.name), func(b *testing.B) {
+					b.ReportAllocs()
+					b.ResetTimer()
+					for iteration := 0; iteration < b.N; iteration++ {
+						if result := implementation.fn(item.input); result != want {
+							b.Fatalf("unexpected normalized spelling")
+						}
+					}
+				})
+			}
+		}
+	}
+}
 
 var cppRawStringStartBenchmarkSink int
 
@@ -521,6 +584,459 @@ func BenchmarkSharedProjectResolverScaling(b *testing.B) {
 	}
 }
 
+// BenchmarkSharedProjectResolverBuildAndSnapshotScaling separates immutable
+// project-model construction from the public, deep-copied reference snapshot.
+func BenchmarkSharedProjectResolverBuildAndSnapshotScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, children := range []int{16, 64, 256} {
+		facts := benchmarkJavaProjectFacts(b, children)
+		limits := ProjectResolverLimits{
+			MaxFiles: len(facts), MaxSymbols: 8192, MaxDependencies: 8192, MaxReferences: 8192, MaxCandidatesPerResolution: 64,
+		}
+		b.Run(fmt.Sprintf("files-%d/build-only", len(facts)), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(model.references) == 0 {
+					b.Fatal("project model returned no references")
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("files-%d/references-snapshot", len(facts)), func(b *testing.B) {
+			model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				snapshot := model.References()
+				if len(snapshot) == 0 {
+					b.Fatal("public reference snapshot is empty")
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkProjectContextFlatPath measures root selection and the full bounded
+// context plan when a file contains many already-sorted top-level declarations.
+func BenchmarkProjectContextFlatPath(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, count := range []int{128, 512, 1024, 2048} {
+		var source strings.Builder
+		for index := 0; index < count; index++ {
+			fmt.Fprintf(&source, "export class Flat%05d {}\n", index)
+		}
+		document := sourceDocumentForScanner(source.String())
+		document.Path = "project/benchmark/flat.ts"
+		document.SourceFingerprint = benchmarkDigest(document.Text)
+		analyzed, err := (TypeScriptAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, 8192))
+		if err != nil || !analyzed.Analysis.CoverageComplete {
+			b.Fatalf("flat source analysis failed: %v", err)
+		}
+		facts := ProjectFileFacts{
+			Path: document.Path, Language: "typescript",
+			SourceFingerprint: document.SourceFingerprint, Analysis: analyzed,
+		}
+		model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, ProjectResolverLimits{
+			MaxFiles: 1, MaxSymbols: 8192, MaxDependencies: 8192, MaxReferences: 8192,
+			MaxCandidatesPerResolution: 64,
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+		key := projectPathKey(document.Path)
+		records := model.symbolsByFile[key]
+		if len(records) < count {
+			b.Fatalf("model retained only %d of %d flat declarations", len(records), count)
+		}
+		for _, record := range records {
+			if record.symbol.ParentID != "" {
+				b.Fatalf("benchmark requires flat declarations: %q", record.symbol.Name)
+			}
+		}
+		selector := ProjectSelector{Kind: ProjectSelectorPath, Path: document.Path, SourceFingerprint: document.SourceFingerprint}
+		options := ProjectContextOptions{BudgetBytes: 1 << 20, MaxItems: 16, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+		b.Run(fmt.Sprintf("symbols-%d/selector-seeds", count), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				seeds, err := model.contextSeedsForSelector(selector)
+				if err != nil || len(seeds) != len(records) {
+					b.Fatalf("path seed selection changed: seeds=%d err=%v", len(seeds), err)
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("symbols-%d/sort-seeds", count), func(b *testing.B) {
+			seeds, err := model.contextSeedsForSelector(selector)
+			if err != nil {
+				b.Fatal(err)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				sortContextSeeds(seeds)
+				if len(seeds) != len(records) {
+					b.Fatalf("seed count changed: %d", len(seeds))
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("symbols-%d/roots", count), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				roots := model.contextRootSymbols(key)
+				if len(roots) != len(records) {
+					b.Fatalf("root count changed: %d", len(roots))
+				}
+			}
+		})
+		b.Run(fmt.Sprintf("symbols-%d/plan-path", count), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				plan, err := model.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+				if err != nil || len(plan.Candidates) != 16 || !plan.Truncated {
+					b.Fatalf("flat path context changed: %d candidates, truncated=%t, err=%v", len(plan.Candidates), plan.Truncated, err)
+				}
+			}
+		})
+		// A broad context with no dependencies must not spend disproportionate
+		// work selecting roots, across bounded item limits.
+		for _, maxItems := range []int{64, 128, 256} {
+			b.Run(fmt.Sprintf("symbols-%d/plan-path-broad-%d", count, maxItems), func(b *testing.B) {
+				wideOptions := options
+				wideOptions.MaxItems = maxItems
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					plan, err := model.PlanContext(context.Background(), []ProjectSelector{selector}, wideOptions)
+					if err != nil || len(plan.Candidates) != min(count, maxItems) || plan.Truncated != (count > maxItems) {
+						b.Fatalf("broad flat context changed: %d candidates, truncated=%t, err=%v", len(plan.Candidates), plan.Truncated, err)
+					}
+				}
+			})
+		}
+	}
+}
+
+// BenchmarkProjectContextMultiPathGrowth isolates request-local seed buffer
+// growth on several independent, flat source files.
+func BenchmarkProjectContextMultiPathGrowth(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, fileCount := range []int{2, 4, 8, 16} {
+		facts := make([]ProjectFileFacts, 0, fileCount)
+		selectors := make([]ProjectSelector, 0, fileCount)
+		for fileIndex := 0; fileIndex < fileCount; fileIndex++ {
+			var source strings.Builder
+			for symbolIndex := 0; symbolIndex < 128; symbolIndex++ {
+				fmt.Fprintf(&source, "export class F%02dS%03d {}\n", fileIndex, symbolIndex)
+			}
+			path := fmt.Sprintf("project/benchmark/multipath/f%02d.ts", fileIndex)
+			item := benchmarkAnalyzerFacts(b, TypeScriptAnalyzer{}, path, source.String())
+			facts = append(facts, item)
+			selectors = append(selectors, ProjectSelector{Kind: ProjectSelectorPath, Path: item.Path, SourceFingerprint: item.SourceFingerprint})
+		}
+		model, err := BuildProjectModel(context.Background(), registry, facts, ProjectResolverLimits{
+			MaxFiles: fileCount, MaxSymbols: fileCount * 256, MaxDependencies: 4096,
+			MaxReferences: 4096, MaxCandidatesPerResolution: 64,
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+		options := ProjectContextOptions{BudgetBytes: 1 << 20, MaxItems: 24, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+		b.Run(fmt.Sprintf("files-%d/plan-context", fileCount), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				plan, err := model.PlanContext(context.Background(), selectors, options)
+				if err != nil || len(plan.Candidates) != options.MaxItems || !plan.Truncated {
+					b.Fatalf("multipath context changed: candidates=%d truncated=%t err=%v", len(plan.Candidates), plan.Truncated, err)
+				}
+			}
+		})
+		// A nonempty reference index forces the unchanged general planner
+		// without changing flat source facts or selected paths. The sentinel
+		// also exercises reference-path bookkeeping, so this is a fallback
+		// control rather than a no-index before/after latency baseline.
+		general := *model
+		general.referencesByTargetIndices = map[string][]int{"benchmark-general-route": nil}
+		b.Run(fmt.Sprintf("files-%d/plan-context-general", fileCount), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				plan, err := general.PlanContext(context.Background(), selectors, options)
+				if err != nil || len(plan.Candidates) != options.MaxItems || !plan.Truncated {
+					b.Fatalf("general multipath context changed: candidates=%d truncated=%t err=%v", len(plan.Candidates), plan.Truncated, err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkProjectContextRelatedMultiPath measures the conservative
+// dependency-aware route with real imports and nested method symbols.
+func BenchmarkProjectContextRelatedMultiPath(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, fileCount := range []int{2, 4} {
+		facts := make([]ProjectFileFacts, 0, fileCount)
+		selectors := make([]ProjectSelector, 0, fileCount)
+		for fileIndex := 0; fileIndex < fileCount; fileIndex++ {
+			var source strings.Builder
+			if fileIndex > 0 {
+				fmt.Fprintf(&source, "import { Item%d } from \"./file%d\";\n", fileIndex-1, fileIndex-1)
+			}
+			fmt.Fprintf(&source, "export class Item%d { work() {} }\n", fileIndex)
+			for symbolIndex := 0; symbolIndex < 64; symbolIndex++ {
+				fmt.Fprintf(&source, "export class Flat%d_%03d {}\n", fileIndex, symbolIndex)
+			}
+			path := fmt.Sprintf("project/benchmark/related/file%d.ts", fileIndex)
+			item := benchmarkAnalyzerFacts(b, TypeScriptAnalyzer{}, path, source.String())
+			facts = append(facts, item)
+			selectors = append(selectors, ProjectSelector{Kind: ProjectSelectorPath, Path: item.Path, SourceFingerprint: item.SourceFingerprint})
+		}
+		model, err := BuildProjectModel(context.Background(), registry, facts, ProjectResolverLimits{
+			MaxFiles: fileCount, MaxSymbols: 2048, MaxDependencies: 2048,
+			MaxReferences: 2048, MaxCandidatesPerResolution: 64,
+		})
+		if err != nil {
+			b.Fatal(err)
+		}
+		if len(model.dependencies) == 0 {
+			b.Fatal("expected actual TypeScript import dependencies")
+		}
+		nested := false
+		for _, records := range model.symbolsByFile {
+			for _, record := range records {
+				nested = nested || record.symbol.ParentID != ""
+			}
+		}
+		if !nested {
+			b.Fatal("expected nested TypeScript methods")
+		}
+		options := ProjectContextOptions{BudgetBytes: 1 << 20, MaxItems: 24, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+		if _, eligible, err := model.planFlatMultiPathContext(context.Background(), selectors, options); eligible || err != nil {
+			b.Fatalf("related paths cannot use compact planner: eligible=%t err=%v", eligible, err)
+		}
+		b.Run(fmt.Sprintf("files-%d/general-related", fileCount), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				plan, err := model.PlanContext(context.Background(), selectors, options)
+				if err != nil || len(plan.Candidates) == 0 {
+					b.Fatalf("dependency-aware context failed: candidates=%d err=%v", len(plan.Candidates), err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkSharedProjectResolverDenseGoScaling separates analysis, immutable
+// model construction, and exact lookup for many declarations in one Go file.
+func BenchmarkSharedProjectResolverDenseGoScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	analyzer := GoAnalyzer{}
+	options := testAnalyzeOptions(false, 8192)
+	for _, declarations := range []int{512, 5000} {
+		var source strings.Builder
+		source.WriteString("package dense\n")
+		for index := 0; index < declarations; index++ {
+			fmt.Fprintf(&source, "func F%04d(value int) int { return value + %d }\n", index, index)
+		}
+		document := sourceDocumentForScanner(source.String())
+		document.Path = "project/benchmark/DenseFunctions.go"
+		document.SourceFingerprint = benchmarkDigest(document.Text)
+		analyzed, err := analyzer.Analyze(context.Background(), document, options)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if !analyzed.Analysis.CoverageComplete {
+			b.Fatalf("incomplete Go analysis for %d functions: %+v", declarations, analyzed.Analysis.Diagnostics)
+		}
+		names := make(map[string]bool, declarations)
+		for _, symbol := range analyzed.Analysis.Symbols {
+			if symbol.Kind == SymbolKindFunction {
+				if names[symbol.Name] {
+					b.Fatalf("duplicate function %q in dense benchmark", symbol.Name)
+				}
+				names[symbol.Name] = true
+			}
+		}
+		if len(names) != declarations {
+			b.Fatalf("Go function coverage=%d want=%d, total symbols=%d", len(names), declarations, len(analyzed.Analysis.Symbols))
+		}
+		for index := 0; index < declarations; index++ {
+			if !names[fmt.Sprintf("F%04d", index)] {
+				b.Fatalf("missing authored Go function %d", index)
+			}
+		}
+		facts := []ProjectFileFacts{{
+			Path: document.Path, Language: analyzer.Language(),
+			SourceFingerprint: document.SourceFingerprint, Analysis: analyzed,
+		}}
+		limits := ProjectResolverLimits{
+			MaxFiles: 1, MaxSymbols: 8192, MaxDependencies: 8192,
+			MaxReferences: 8192, MaxCandidatesPerResolution: 64,
+		}
+		pathKey := projectPathKey(document.Path)
+		name := fmt.Sprintf("functions-%d", declarations)
+		b.Run(name+"/analyze-only", func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(len(document.Text)))
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				result, err := analyzer.Analyze(context.Background(), document, options)
+				if err != nil || !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != len(analyzed.Analysis.Symbols) {
+					b.Fatalf("inconsistent analyzer result: symbols=%d err=%v", len(result.Analysis.Symbols), err)
+				}
+			}
+		})
+		b.Run(name+"/build-only", func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(model.symbolsByFile[pathKey]) != len(analyzed.Analysis.Symbols) {
+					b.Fatalf("model symbol coverage=%d want=%d", len(model.symbolsByFile[pathKey]), len(analyzed.Analysis.Symbols))
+				}
+			}
+		})
+		b.Run(name+"/exact-lookup", func(b *testing.B) {
+			model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+			if err != nil {
+				b.Fatal(err)
+			}
+			query := ProjectSearchOptions{
+				Query: fmt.Sprintf("F%04d", declarations-1), Match: ProjectSearchExact,
+				Kinds: []string{string(SymbolKindFunction)}, MaxResults: 4,
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				result, err := model.StructuralSearch(context.Background(), query)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(result.Matches) != 1 || result.Matches[0].Name != query.Query || result.Truncated {
+					b.Fatalf("unexpected dense exact lookup result: %+v", result)
+				}
+			}
+		})
+		// The existing multi-file position benchmark resolves a reference first.
+		// This exercises the independent symbol-range fallback in a dense file.
+		b.Run(name+"/position-symbol", func(b *testing.B) {
+			model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+			if err != nil {
+				b.Fatal(err)
+			}
+			lastName := fmt.Sprintf("F%04d", declarations-1)
+			var selected NormalizedSymbol
+			for _, symbol := range analyzed.Analysis.Symbols {
+				if symbol.Name == lastName {
+					selected = symbol
+					break
+				}
+			}
+			if selected.ID == "" {
+				b.Fatalf("missing last function %q", lastName)
+			}
+			position := selected.NameRange.Start
+			selector := ProjectSelector{
+				Kind: ProjectSelectorPosition, Path: document.Path,
+				SourceFingerprint: document.SourceFingerprint, Position: &position,
+			}
+			initial, err := model.resolveProjectSelector(selector)
+			if err != nil || initial.reference != nil || initial.entity.SymbolID != selected.ID {
+				b.Fatalf("position did not select the last function: %+v err=%v", initial, err)
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				resolved, err := model.resolveProjectSelector(selector)
+				if err != nil || resolved.reference != nil || resolved.entity.SymbolID != selected.ID {
+					b.Fatalf("position selector changed: %+v err=%v", resolved, err)
+				}
+			}
+		})
+		// Measure complete relation/context operations, not only the internal
+		// symbol selector, on the same dense immutable model.
+		positionOperationSetup := func(b *testing.B) (*ProjectModel, ProjectSelector, string) {
+			b.Helper()
+			model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+			if err != nil {
+				b.Fatal(err)
+			}
+			lastName := fmt.Sprintf("F%04d", declarations-1)
+			for _, symbol := range analyzed.Analysis.Symbols {
+				if symbol.Name != lastName {
+					continue
+				}
+				position := symbol.NameRange.Start
+				selector := ProjectSelector{
+					Kind: ProjectSelectorPosition, Path: document.Path,
+					SourceFingerprint: document.SourceFingerprint, Position: &position,
+				}
+				return model, selector, symbol.ID
+			}
+			b.Fatalf("missing dense target function %q", lastName)
+			return nil, ProjectSelector{}, ""
+		}
+		b.Run(name+"/position-relations", func(b *testing.B) {
+			model, selector, symbolID := positionOperationSetup(b)
+			queryLimits := ProjectQueryLimits{MaxResults: 4, MaxNodes: 8, MaxEdges: 8, MaxDepth: 2}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				result, err := model.QueryRelations(context.Background(), RelationDefinitions,
+					selector, ProjectSelector{}, nil, queryLimits)
+				if err != nil || len(result.Records) != 1 ||
+					result.Records[0].Target.SymbolID != symbolID {
+					b.Fatalf("dense position relations: records=%+v err=%v", result.Records, err)
+				}
+			}
+		})
+		b.Run(name+"/position-context", func(b *testing.B) {
+			model, selector, symbolID := positionOperationSetup(b)
+			options := ProjectContextOptions{
+				BudgetBytes: 8192, MaxItems: 8, MaxDepth: 2,
+				BodyPolicy: ProjectContextSignaturesOnly,
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				result, err := model.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+				if err != nil || len(result.Candidates) == 0 ||
+					result.Candidates[0].Entity.SymbolID != symbolID {
+					b.Fatalf("dense position context: candidates=%+v err=%v", result.Candidates, err)
+				}
+			}
+		})
+	}
+}
+
 func BenchmarkSharedProjectIndexRefresh(b *testing.B) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
@@ -699,6 +1215,337 @@ func BenchmarkSharedProjectQueryAndContext(b *testing.B) {
 	})
 }
 
+// BenchmarkDeterministicProjectReferenceID measures stable reference identity
+// hashing independently from project model construction and index refresh.
+func BenchmarkDeterministicProjectReferenceID(b *testing.B) {
+	for _, item := range []struct {
+		name   string
+		line   int
+		column int
+	}{
+		{name: "typical", line: 120, column: 24},
+		{name: "large-offset", line: 2147483647, column: 123456789},
+	} {
+		b.Run(item.name, func(b *testing.B) {
+			reference := ProjectReference{
+				Source: RelationEntity{
+					Path: "project/src/example/Reference.java", Language: "java",
+					SymbolID: "symbol:1234", QualifiedName: "example.Reference.handle",
+				},
+				StructuralKind: "call", TargetSpelling: "example.Target.run",
+				Range: Range{
+					Start: Position{Line: item.line, Column: item.column},
+					End:   Position{Line: item.line + 1, Column: item.column + 1},
+				},
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if len(deterministicProjectReferenceID(reference)) != 64 {
+					b.Fatal("reference ID digest length changed")
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkProjectLargeSymbolModelCosts separates immutable model construction
+// from index-owned facts cloning on an analyzer-proven dense Go source file.
+func BenchmarkProjectLargeSymbolModelCosts(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, functions := range []int{64, 5000} {
+		b.Run(fmt.Sprintf("functions-%d", functions), func(b *testing.B) {
+			var source strings.Builder
+			source.WriteString("package benchmark\n")
+			for index := 0; index < functions; index++ {
+				fmt.Fprintf(&source, "func F%04d(value int) int { return value + %d }\n", index, index)
+			}
+			document := sourceDocumentForScanner(source.String())
+			document.Path = "project/benchmark/Large.go"
+			document.SourceFingerprint = benchmarkDigest(source.String())
+			analysis, err := (GoAnalyzer{}).Analyze(context.Background(), document, testAnalyzeOptions(false, functions+16))
+			if err != nil || !analysis.Analysis.CoverageComplete || len(analysis.Analysis.Symbols) != functions+1 {
+				b.Fatalf("analyzer fixture symbols=%d complete=%t err=%v", len(analysis.Analysis.Symbols), analysis.Analysis.CoverageComplete, err)
+			}
+			facts := ProjectFileFacts{Path: document.Path, Language: "go", SourceFingerprint: document.SourceFingerprint, Analysis: analysis}
+			limits := ProjectResolverLimits{
+				MaxFiles: 1, MaxSymbols: functions + 16, MaxDependencies: 64,
+				MaxReferences: 64, MaxCandidatesPerResolution: 64,
+			}
+			b.Run("model-build", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for iteration := 0; iteration < b.N; iteration++ {
+					model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, limits)
+					if err != nil || len(model.symbolsByFile[projectPathKey(facts.Path)]) != functions+1 {
+						b.Fatalf("model build changed: err=%v", err)
+					}
+				}
+			})
+			b.Run("owned-facts-clone", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for iteration := 0; iteration < b.N; iteration++ {
+					cloned := cloneProjectFileFactsForIndex(facts)
+					if len(cloned.Analysis.Analysis.Symbols) != functions+1 {
+						b.Fatal("snapshot clone changed symbol count")
+					}
+				}
+			})
+		})
+	}
+}
+
+// BenchmarkProjectDenseSameFileResolution separates the per-reference source
+// lookup from the full model build for files with many local declarations.
+func BenchmarkProjectDenseSameFileResolution(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	descriptor, ok := registry.Resolve("java")
+	if !ok {
+		b.Fatal("java descriptor is unavailable")
+	}
+	for _, children := range []int{16, 64, 256} {
+		b.Run(fmt.Sprintf("classes-%d", children), func(b *testing.B) {
+			var source strings.Builder
+			source.WriteString("package demo;\nclass Base {}\n")
+			for index := 0; index < children; index++ {
+				fmt.Fprintf(&source, "class Child%03d extends Base {}\n", index)
+			}
+			facts := benchmarkAnalyzerFacts(b, JavaAnalyzer{}, "project/benchmark/Dense.java", source.String())
+			if len(facts.Analysis.Relations) != children {
+				b.Fatalf("analyzer relationships: got %d want %d", len(facts.Analysis.Relations), children)
+			}
+			limits := ProjectResolverLimits{MaxFiles: 1, MaxSymbols: 4096, MaxDependencies: 4096, MaxReferences: 4096, MaxCandidatesPerResolution: 64}
+			b.Run("model-build", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for iteration := 0; iteration < b.N; iteration++ {
+					model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, limits)
+					if err != nil || len(model.references) != children {
+						b.Fatalf("project build: references=%d err=%v", len(model.references), err)
+					}
+				}
+			})
+			model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, limits)
+			if err != nil {
+				b.Fatal(err)
+			}
+			file := model.files[projectPathKey(facts.Path)]
+			relation := facts.Analysis.Relations[len(facts.Analysis.Relations)-1]
+			target := projectSymbolLookupKey(descriptor, relation.Target)
+			parent := qualifiedParent(projectSymbolLookupKey(descriptor, relation.Source))
+			if got := model.sameFileCandidates(file, descriptor, parent, target); len(got) != 1 {
+				b.Fatalf("unexpected same-file targets: %d", len(got))
+			}
+			b.Run("same-file-candidates", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for iteration := 0; iteration < b.N; iteration++ {
+					if got := model.sameFileCandidates(file, descriptor, parent, target); len(got) != 1 {
+						b.Fatalf("unexpected same-file targets: %d", len(got))
+					}
+				}
+			})
+			if got := model.resolveRelationSource(file, descriptor, relation, nil); got.SymbolID == "" {
+				b.Fatalf("last source could not be resolved: %+v", got)
+			}
+			b.Run("source-lookup", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for iteration := 0; iteration < b.N; iteration++ {
+					if got := model.resolveRelationSource(file, descriptor, relation, nil); got.SymbolID == "" {
+						b.Fatal("source lookup missing symbol")
+					}
+				}
+			})
+		})
+	}
+}
+
+// BenchmarkProjectSymbolIDContextScaling isolates repeated symbol-ID lookups
+// from full context planning and accounts for model construction overhead.
+func BenchmarkProjectSymbolIDContextScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, children := range []int{16, 64, 256} {
+		b.Run(fmt.Sprintf("classes-%d", children), func(b *testing.B) {
+			var source strings.Builder
+			source.WriteString("package demo;\nclass Base {}\n")
+			for index := 0; index < children; index++ {
+				fmt.Fprintf(&source, "class Child%03d extends Base {}\n", index)
+			}
+			facts := benchmarkAnalyzerFacts(b, JavaAnalyzer{}, "project/benchmark/DenseID.java", source.String())
+			limits := ProjectResolverLimits{MaxFiles: 1, MaxSymbols: 4096, MaxDependencies: 4096, MaxReferences: 4096, MaxCandidatesPerResolution: 64}
+			b.Run("model-build", func(b *testing.B) {
+				b.ReportAllocs()
+				for iteration := 0; iteration < b.N; iteration++ {
+					model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, limits)
+					if err != nil || len(model.references) != children {
+						b.Fatalf("model build references=%d err=%v", len(model.references), err)
+					}
+				}
+			})
+			model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, limits)
+			if err != nil {
+				b.Fatal(err)
+			}
+			pathKey := projectPathKey(facts.Path)
+			records := model.symbolsByFile[pathKey]
+			if len(records) < children+1 {
+				b.Fatalf("analyzer returned %d symbols, expected >= %d", len(records), children+1)
+			}
+			var baseID, lastID string
+			for _, record := range records {
+				switch record.symbol.QualifiedName {
+				case "demo.Base":
+					baseID = record.symbol.ID
+				case fmt.Sprintf("demo.Child%03d", children-1):
+					lastID = record.symbol.ID
+				}
+			}
+			if baseID == "" || lastID == "" {
+				b.Fatalf("missing Base or late-child ID: base=%q child=%q", baseID, lastID)
+			}
+			last := ProjectSelector{Kind: ProjectSelectorSymbol, Path: facts.Path, SourceFingerprint: facts.SourceFingerprint, SymbolID: lastID}
+			base := ProjectSelector{Kind: ProjectSelectorSymbol, Path: facts.Path, SourceFingerprint: facts.SourceFingerprint, SymbolID: baseID}
+			options := ProjectContextOptions{BudgetBytes: 1024 * 1024, MaxItems: children + 8, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+			if seeds, err := model.contextSeedsForSelector(last); err != nil || len(seeds) != 1 {
+				b.Fatalf("late symbol selector seeds=%d err=%v", len(seeds), err)
+			}
+			if plan, err := model.PlanContext(context.Background(), []ProjectSelector{base}, options); err != nil || len(plan.Candidates) < children {
+				b.Fatalf("base context candidates=%d err=%v", len(plan.Candidates), err)
+			}
+			b.Run("id-lookup", func(b *testing.B) {
+				b.ReportAllocs()
+				for iteration := 0; iteration < b.N; iteration++ {
+					if _, ok := model.contextSymbolByID(pathKey, lastID); !ok {
+						b.Fatal("late symbol not found")
+					}
+				}
+			})
+			b.Run("query-symbol", func(b *testing.B) {
+				b.ReportAllocs()
+				for iteration := 0; iteration < b.N; iteration++ {
+					if _, err := model.resolveProjectSelector(last); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+			b.Run("context-selector", func(b *testing.B) {
+				b.ReportAllocs()
+				for iteration := 0; iteration < b.N; iteration++ {
+					if _, err := model.contextSeedsForSelector(last); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+			b.Run("context-plan-base", func(b *testing.B) {
+				b.ReportAllocs()
+				for iteration := 0; iteration < b.N; iteration++ {
+					if _, err := model.PlanContext(context.Background(), []ProjectSelector{base}, options); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+		})
+	}
+}
+
+// BenchmarkProjectPositionSelectorModelBuild includes immutable model setup
+// to account for the memory and CPU cost of any new lookup index.
+func BenchmarkProjectPositionSelectorModelBuild(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, children := range []int{16, 64, 256} {
+		b.Run(fmt.Sprintf("files-%d", children+1), func(b *testing.B) {
+			facts := benchmarkJavaProjectFacts(b, children)
+			limits := ProjectResolverLimits{
+				MaxFiles: len(facts), MaxSymbols: 4096, MaxDependencies: 4096,
+				MaxReferences: 4096, MaxCandidatesPerResolution: 64,
+			}
+			b.ReportAllocs()
+			b.ResetTimer()
+			for iteration := 0; iteration < b.N; iteration++ {
+				model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if len(model.references) == 0 {
+					b.Fatal("model build returned no references")
+				}
+			}
+		})
+	}
+}
+
+func BenchmarkProjectPositionSelectorScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, children := range []int{16, 64, 256} {
+		b.Run(fmt.Sprintf("files-%d", children+1), func(b *testing.B) {
+			facts := benchmarkJavaProjectFacts(b, children)
+			model, err := BuildProjectModel(context.Background(), registry, facts, ProjectResolverLimits{
+				MaxFiles: len(facts), MaxSymbols: 4096, MaxDependencies: 4096,
+				MaxReferences: 4096, MaxCandidatesPerResolution: 64,
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(model.references) == 0 {
+				b.Fatal("position benchmark needs analyzer-proven references")
+			}
+			reference := model.references[len(model.references)-1]
+			file, ok := model.files[projectPathKey(reference.Source.Path)]
+			if !ok || reference.Range.Start.Line <= 0 || reference.Range.Start.Column <= 0 {
+				b.Fatalf("invalid reference fixture: %+v", reference)
+			}
+			position := reference.Range.Start
+			selector := ProjectSelector{
+				Kind: ProjectSelectorPosition, Path: file.facts.Path,
+				SourceFingerprint: file.facts.SourceFingerprint, Position: &position,
+			}
+			if resolved, err := model.resolveProjectSelector(selector); err != nil || resolved.reference == nil {
+				b.Fatalf("position selector fixture is not a reference: %+v, err=%v", resolved, err)
+			}
+			if seeds, err := model.contextSeedsForSelector(selector); err != nil || len(seeds) == 0 {
+				b.Fatalf("context selector fixture failed: seeds=%d err=%v", len(seeds), err)
+			}
+			b.Run("relations", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					selected, err := model.resolveProjectSelector(selector)
+					if err != nil || selected.reference == nil {
+						b.Fatalf("relation position selector failed: %+v err=%v", selected, err)
+					}
+				}
+			})
+			b.Run("context", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					seeds, err := model.contextSeedsForSelector(selector)
+					if err != nil || len(seeds) == 0 {
+						b.Fatalf("context position selector failed: seeds=%d err=%v", len(seeds), err)
+					}
+				}
+			})
+		})
+	}
+}
+
 func BenchmarkCPPRawStringStart(b *testing.B) {
 	negative := strings.Repeat("ordinary_identifier + value; ", 64)
 	matches := []string{`R"tag(`, `LR"tag(`, `UR"tag(`, `uR"tag(`, `u8R"tag(`}
@@ -777,6 +1624,55 @@ func BenchmarkRepresentativeFamilyAnalyzers(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+// BenchmarkJVMAnalyzerDeclarationScaling measures full Java/Kotlin analysis,
+// including the final owned or defensive symbol result, at fixed source sizes.
+func BenchmarkJVMAnalyzerDeclarationScaling(b *testing.B) {
+	for _, language := range []string{"java", "kotlin"} {
+		for _, declarationCount := range []int{16, 64, 256} {
+			b.Run(fmt.Sprintf("%s/%d", language, declarationCount), func(b *testing.B) {
+				var source strings.Builder
+				source.WriteString("package bench;\n")
+				var analyzer SourceAnalyzer = JavaAnalyzer{}
+				if language == "kotlin" {
+					source.Reset()
+					source.WriteString("package bench\n")
+					analyzer = KotlinAnalyzer{}
+				}
+				for index := 0; index < declarationCount; index++ {
+					if language == "kotlin" {
+						fmt.Fprintf(&source, "class Item%03d { val value: Int = %d; fun get(): Int = value }\n", index, index)
+					} else {
+						fmt.Fprintf(&source, "public class Item%03d { private int value = %d; public int get() { return value; } }\n", index, index)
+					}
+				}
+				document := sourceDocumentForScanner(source.String())
+				document.Path = "benchmark.java"
+				if language == "kotlin" {
+					document.Path = "benchmark.kt"
+				}
+				options := AnalyzeOptions{
+					IncludeSignatures: true, MaxNesting: 256,
+					Limits: SymbolBuilderLimits{MaxSymbols: 4096, MaxSignatureBytes: 8192, MaxDiagnostics: 256},
+				}
+				reference, err := analyzer.Analyze(context.Background(), document, options)
+				if err != nil || !reference.Analysis.CoverageComplete || len(reference.Analysis.Symbols) < declarationCount {
+					b.Fatalf("seed analysis symbols=%d complete=%t err=%v", len(reference.Analysis.Symbols), reference.Analysis.CoverageComplete, err)
+				}
+				wantCount := len(reference.Analysis.Symbols)
+				b.ReportAllocs()
+				b.SetBytes(int64(len(document.Text)))
+				b.ResetTimer()
+				for iteration := 0; iteration < b.N; iteration++ {
+					result, err := analyzer.Analyze(context.Background(), document, options)
+					if err != nil || !result.Analysis.CoverageComplete || len(result.Analysis.Symbols) != wantCount {
+						b.Fatalf("analysis symbols=%d want=%d complete=%t err=%v", len(result.Analysis.Symbols), wantCount, result.Analysis.CoverageComplete, err)
+					}
+				}
+			})
+		}
 	}
 }
 
@@ -967,6 +1863,348 @@ func BenchmarkSharedLanguageDetection(b *testing.B) {
 	}
 }
 
+// BenchmarkProjectContextOutgoingReferenceScaling measures the complete
+// context plan separately for narrow and broad inheritance targets. Facts are
+// analyzer-proven and model construction occurs outside timed queries.
+func BenchmarkProjectContextOutgoingReferenceScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, children := range []int{16, 64, 256} {
+		b.Run(fmt.Sprintf("files-%d", children+1), func(b *testing.B) {
+			facts := benchmarkJavaProjectFacts(b, children)
+			model, err := BuildProjectModel(context.Background(), registry, facts, ProjectResolverLimits{
+				MaxFiles: len(facts), MaxSymbols: 4096, MaxDependencies: 4096,
+				MaxReferences: 4096, MaxCandidatesPerResolution: 64,
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+			if len(model.references) != children {
+				b.Fatalf("expected %d references, got %d", children, len(model.references))
+			}
+			symbolSelector := func(facts ProjectFileFacts, qualifiedName string) ProjectSelector {
+				var id string
+				for _, symbol := range facts.Analysis.Analysis.Symbols {
+					if symbol.QualifiedName == qualifiedName {
+						id = symbol.ID
+						break
+					}
+				}
+				if id == "" {
+					b.Fatalf("missing benchmark symbol %q in %q", qualifiedName, facts.Path)
+				}
+				return ProjectSelector{Kind: ProjectSelectorSymbol, Path: facts.Path, SourceFingerprint: facts.SourceFingerprint, SymbolID: id}
+			}
+			base := symbolSelector(facts[0], "demo.Base")
+			late := symbolSelector(facts[len(facts)-1], fmt.Sprintf("demo.Child%03d", children-1))
+			multi := make([]ProjectSelector, 0, min(8, children))
+			for index := 0; index < cap(multi); index++ {
+				multi = append(multi, symbolSelector(facts[len(facts)-1-index], fmt.Sprintf("demo.Child%03d", children-1-index)))
+			}
+			path := ProjectSelector{Kind: ProjectSelectorPath, Path: facts[len(facts)-1].Path, SourceFingerprint: facts[len(facts)-1].SourceFingerprint}
+			options := ProjectContextOptions{BudgetBytes: 1 << 20, MaxItems: 512, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+			for _, tc := range []struct {
+				name      string
+				selectors []ProjectSelector
+			}{
+				{"single-late", []ProjectSelector{late}},
+				{"single-base", []ProjectSelector{base}},
+				{"multi-late", multi},
+				{"path-late", []ProjectSelector{path}},
+			} {
+				b.Run(tc.name, func(b *testing.B) {
+					plan, err := model.PlanContext(context.Background(), tc.selectors, options)
+					if err != nil || len(plan.Candidates) == 0 {
+						b.Fatalf("fixture plan: candidates=%d err=%v", len(plan.Candidates), err)
+					}
+					b.ReportAllocs()
+					b.ResetTimer()
+					for iteration := 0; iteration < b.N; iteration++ {
+						if _, err := model.PlanContext(context.Background(), tc.selectors, options); err != nil {
+							b.Fatal(err)
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
+func benchmarkReverseTargetCount(model *ProjectModel, targetID string) int {
+	if model.referencesByTargetIndices != nil {
+		return len(model.referencesByTargetIndices[targetID])
+	}
+	return len(model.referencesByTarget[targetID])
+}
+
+// BenchmarkProjectReverseTargetIndexScaling measures model construction and
+// reverse-reference consumers on analyzer-proven inheritance relationships.
+// The full project model is built outside timed queries.
+func BenchmarkProjectReverseTargetIndexScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, children := range []int{16, 64, 256} {
+		b.Run(fmt.Sprintf("references-%d", children), func(b *testing.B) {
+			facts := benchmarkJavaProjectFacts(b, children)
+			limits := ProjectResolverLimits{
+				MaxFiles: len(facts), MaxSymbols: 4096, MaxDependencies: 4096,
+				MaxReferences: 4096, MaxCandidatesPerResolution: 64,
+			}
+			var baseID string
+			for _, symbol := range facts[0].Analysis.Analysis.Symbols {
+				if symbol.QualifiedName == "demo.Base" {
+					baseID = symbol.ID
+					break
+				}
+			}
+			if baseID == "" {
+				b.Fatal("base declaration was not analyzed")
+			}
+			b.Run("model-build", func(b *testing.B) {
+				b.ReportAllocs()
+				for iteration := 0; iteration < b.N; iteration++ {
+					model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+					if err != nil {
+						b.Fatal(err)
+					}
+					if got := benchmarkReverseTargetCount(model, baseID); got != children {
+						b.Fatalf("reverse model references=%d want=%d", got, children)
+					}
+				}
+			})
+			model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if got := benchmarkReverseTargetCount(model, baseID); got != children {
+				b.Fatalf("reverse model setup references=%d want=%d", got, children)
+			}
+			b.Run("references-to", func(b *testing.B) {
+				b.ReportAllocs()
+				for iteration := 0; iteration < b.N; iteration++ {
+					values := model.ReferencesTo(baseID)
+					if len(values) != children {
+						b.Fatalf("defensive references=%d want=%d", len(values), children)
+					}
+				}
+			})
+			selector := ProjectSelector{Kind: ProjectSelectorSymbol, Path: facts[0].Path, SourceFingerprint: facts[0].SourceFingerprint, SymbolID: baseID}
+			queryLimits := ProjectQueryLimits{MaxResults: children + 8, MaxNodes: children + 8, MaxEdges: children + 8, MaxDepth: 2}
+			b.Run("relations-references", func(b *testing.B) {
+				b.ReportAllocs()
+				for iteration := 0; iteration < b.N; iteration++ {
+					result, err := model.QueryRelations(context.Background(), RelationReferences, selector, ProjectSelector{}, nil, queryLimits)
+					if err != nil || len(result.Records) != children {
+						b.Fatalf("reverse query records=%d err=%v", len(result.Records), err)
+					}
+				}
+			})
+		})
+	}
+}
+
+// BenchmarkProjectReverseTargetFanoutScaling records the construction cost and
+// retained backing-array footprint when each source reference has multiple
+// equally plausible target declarations. Public lookup still clones snapshots.
+func BenchmarkProjectReverseTargetFanoutScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	const children = 128
+	for _, definitions := range []int{1, 4, 8, 16} {
+		b.Run(fmt.Sprintf("targets-%d", definitions), func(b *testing.B) {
+			facts := make([]ProjectFileFacts, 0, definitions+children)
+			for index := 0; index < definitions; index++ {
+				path := fmt.Sprintf("project/benchmark/Base%03d.java", index)
+				facts = append(facts, benchmarkAnalyzerFacts(b, JavaAnalyzer{}, path, "package demo; public class Base {}\n"))
+			}
+			for index := 0; index < children; index++ {
+				path := fmt.Sprintf("project/benchmark/Child%03d.java", index)
+				text := fmt.Sprintf("package demo; public class Child%03d extends Base {}\n", index)
+				facts = append(facts, benchmarkAnalyzerFacts(b, JavaAnalyzer{}, path, text))
+			}
+			limits := ProjectResolverLimits{MaxFiles: len(facts), MaxSymbols: 4096, MaxDependencies: 4096, MaxReferences: 4096, MaxCandidatesPerResolution: 64}
+			baseID := ""
+			for _, symbol := range facts[0].Analysis.Analysis.Symbols {
+				if symbol.QualifiedName == "demo.Base" {
+					baseID = symbol.ID
+					break
+				}
+			}
+			if baseID == "" {
+				b.Fatal("base symbol missing")
+			}
+			sample, err := BuildProjectModel(context.Background(), registry, facts, limits)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if got := len(sample.ReferencesTo(baseID)); got != children {
+				b.Fatalf("baseline reverse=%d, want %d", got, children)
+			}
+			capacity := 0
+			for _, bucket := range sample.referencesByTarget {
+				capacity += cap(bucket)
+			}
+			bucketBytes := capacity * int(unsafe.Sizeof(ProjectReference{}))
+			indexCapacity := 0
+			for _, indices := range sample.referencesByTargetIndices {
+				indexCapacity += cap(indices)
+			}
+			indexBytes := indexCapacity * int(unsafe.Sizeof(int(0)))
+			b.Run("model-build", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ReportMetric(float64(bucketBytes), "reverse-bucket-B")
+				b.ReportMetric(float64(indexBytes), "reverse-index-B")
+				for iteration := 0; iteration < b.N; iteration++ {
+					model, err := BuildProjectModel(context.Background(), registry, facts, limits)
+					if err != nil {
+						b.Fatal(err)
+					}
+					if got := benchmarkReverseTargetCount(model, baseID); got != children {
+						b.Fatalf("model reverse=%d, want %d", got, children)
+					}
+				}
+			})
+		})
+	}
+}
+
+// BenchmarkProjectReverseTargetLookupParityScaling compares indexed and
+// legacy bucket traversal on the same immutable facts and query workload.
+func BenchmarkProjectReverseTargetLookupParityScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, children := range []int{64, 256} {
+		b.Run(fmt.Sprintf("references-%d", children), func(b *testing.B) {
+			facts := benchmarkJavaProjectFacts(b, children)
+			baseID := ""
+			for _, symbol := range facts[0].Analysis.Analysis.Symbols {
+				if symbol.QualifiedName == "demo.Base" {
+					baseID = symbol.ID
+					break
+				}
+			}
+			model, err := BuildProjectModel(context.Background(), registry, facts, ProjectResolverLimits{
+				MaxFiles: len(facts), MaxSymbols: 4096, MaxDependencies: 4096,
+				MaxReferences: 4096, MaxCandidatesPerResolution: 64,
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+			if model.referencesByTargetIndices == nil {
+				b.Fatal("dense unique fixture must use compact target index")
+			}
+			legacy := *model
+			legacy.referencesByTargetIndices = nil
+			legacy.referencesByTarget = make(map[string][]ProjectReference)
+			for _, reference := range model.references {
+				for _, target := range reference.Targets {
+					if target.SymbolID != "" {
+						legacy.referencesByTarget[target.SymbolID] = append(legacy.referencesByTarget[target.SymbolID], reference)
+					}
+				}
+			}
+			for key := range legacy.referencesByTarget {
+				sortProjectReferences(legacy.referencesByTarget[key])
+			}
+			selector := ProjectSelector{Kind: ProjectSelectorSymbol, Path: facts[0].Path, SourceFingerprint: facts[0].SourceFingerprint, SymbolID: baseID}
+			limits := ProjectQueryLimits{MaxResults: children + 8, MaxNodes: children + 8, MaxEdges: children + 8, MaxDepth: 2}
+			for _, tc := range []struct {
+				name  string
+				model *ProjectModel
+			}{{"indexed", model}, {"legacy", &legacy}} {
+				b.Run(tc.name+"-query", func(b *testing.B) {
+					b.ReportAllocs()
+					for iteration := 0; iteration < b.N; iteration++ {
+						result, err := tc.model.QueryRelations(context.Background(), RelationReferences, selector, ProjectSelector{}, nil, limits)
+						if err != nil || len(result.Records) != children {
+							b.Fatalf("query records=%d err=%v", len(result.Records), err)
+						}
+					}
+				})
+				b.Run(tc.name+"-references-to", func(b *testing.B) {
+					b.ReportAllocs()
+					for iteration := 0; iteration < b.N; iteration++ {
+						result := tc.model.ReferencesTo(baseID)
+						if len(result) != children {
+							b.Fatalf("references=%d, want %d", len(result), children)
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
+// BenchmarkProjectForwardInheritanceScaling isolates whole-project source-side
+// reference scanning from the surrounding public relationship query cost.
+func BenchmarkProjectForwardInheritanceScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, children := range []int{16, 64, 256} {
+		b.Run(fmt.Sprintf("references-%d", children), func(b *testing.B) {
+			facts := benchmarkJavaProjectFacts(b, children)
+			model, err := BuildProjectModel(context.Background(), registry, facts, ProjectResolverLimits{
+				MaxFiles: len(facts), MaxSymbols: 4096, MaxDependencies: 4096,
+				MaxReferences: 4096, MaxCandidatesPerResolution: 64,
+			})
+			if err != nil || len(model.references) != children {
+				b.Fatalf("project references=%d err=%v", len(model.references), err)
+			}
+			symbolSelector := func(fact ProjectFileFacts, qualifiedName string) ProjectSelector {
+				for _, symbol := range fact.Analysis.Analysis.Symbols {
+					if symbol.QualifiedName == qualifiedName {
+						return ProjectSelector{Kind: ProjectSelectorSymbol, Path: fact.Path, SourceFingerprint: fact.SourceFingerprint, SymbolID: symbol.ID}
+					}
+				}
+				b.Fatalf("missing benchmark symbol %q in %q", qualifiedName, fact.Path)
+				return ProjectSelector{}
+			}
+			base := symbolSelector(facts[0], "demo.Base")
+			early := symbolSelector(facts[1], "demo.Child000")
+			late := symbolSelector(facts[len(facts)-1], fmt.Sprintf("demo.Child%03d", children-1))
+			limits := ProjectQueryLimits{MaxResults: children + 8, MaxNodes: children + 8, MaxEdges: children + 8, MaxDepth: 2}
+			for _, tc := range []struct {
+				name     string
+				selector ProjectSelector
+				want     int
+			}{
+				{"no-source", base, 0},
+				{"early-source", early, 1},
+				{"late-source", late, 1},
+			} {
+				b.Run(tc.name, func(b *testing.B) {
+					b.ReportAllocs()
+					for iteration := 0; iteration < b.N; iteration++ {
+						result, err := model.QueryRelations(context.Background(), RelationInheritance, tc.selector, ProjectSelector{}, nil, limits)
+						if err != nil || len(result.Records) != tc.want {
+							b.Fatalf("forward query got=%d want=%d err=%v", len(result.Records), tc.want, err)
+						}
+					}
+				})
+			}
+			b.Run("raw-source-scan", func(b *testing.B) {
+				b.ReportAllocs()
+				for iteration := 0; iteration < b.N; iteration++ {
+					records := model.referenceRecordsFrom(late.SymbolID, RelationInheritance, isInheritanceStructuralKind, nil)
+					if len(records) != 1 {
+						b.Fatalf("forward scan got=%d want=1", len(records))
+					}
+				}
+			})
+		})
+	}
+}
+
 func benchmarkJavaProjectFacts(b *testing.B, children int) []ProjectFileFacts {
 	b.Helper()
 	facts := make([]ProjectFileFacts, 0, children+1)
@@ -997,4 +2235,54 @@ func benchmarkAnalyzerFacts(b *testing.B, analyzer SourceAnalyzer, path, text st
 func benchmarkDigest(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])
+}
+
+// BenchmarkProjectStructuralSearchSparseScaling isolates matching cost from
+// analyzer/model construction and separates sparse hits from broad output.
+func BenchmarkProjectStructuralSearchSparseScaling(b *testing.B) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	for _, children := range []int{16, 64, 256} {
+		b.Run(fmt.Sprintf("files-%d", children), func(b *testing.B) {
+			facts := benchmarkJavaProjectFacts(b, children)
+			model, err := BuildProjectModel(context.Background(), registry, facts, ProjectResolverLimits{
+				MaxFiles: len(facts), MaxSymbols: 4096, MaxDependencies: 4096, MaxReferences: 4096, MaxCandidatesPerResolution: 64,
+			})
+			if err != nil {
+				b.Fatal(err)
+			}
+			testCases := []struct {
+				name  string
+				query string
+				match ProjectSearchMatchMode
+				kinds []string
+				want  int
+			}{
+				{name: "exact-late", query: fmt.Sprintf("Child%03d", children-1), match: ProjectSearchExact, want: 1},
+				{name: "exact-missing", query: "MissingClassNoMatch", match: ProjectSearchExact, want: 0},
+				{name: "exact-late-class-only", query: fmt.Sprintf("Child%03d", children-1), match: ProjectSearchExact, kinds: []string{string(SymbolKindClass)}, want: 1},
+				{name: "exact-missing-class-only", query: "MissingClassNoMatch", match: ProjectSearchExact, kinds: []string{string(SymbolKindClass)}, want: 0},
+				{name: "prefix-all", query: "Child", match: ProjectSearchPrefix, want: children},
+				{name: "prefix-all-class-only", query: "Child", match: ProjectSearchPrefix, kinds: []string{string(SymbolKindClass)}, want: children},
+				{name: "prefix-all-method-only", query: "Child", match: ProjectSearchPrefix, kinds: []string{string(SymbolKindMethod)}, want: 0},
+			}
+			for _, testCase := range testCases {
+				b.Run(testCase.name, func(b *testing.B) {
+					options := ProjectSearchOptions{
+						Query: testCase.query, Match: testCase.match, Kinds: testCase.kinds, MaxResults: children + 8,
+					}
+					b.ReportAllocs()
+					b.ResetTimer()
+					for iteration := 0; iteration < b.N; iteration++ {
+						result, err := model.StructuralSearch(context.Background(), options)
+						if err != nil || len(result.Matches) != testCase.want {
+							b.Fatalf("structural search got=%d want=%d err=%v", len(result.Matches), testCase.want, err)
+						}
+					}
+				})
+			}
+		})
+	}
 }

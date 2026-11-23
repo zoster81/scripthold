@@ -164,26 +164,31 @@ func (h *Handler) collectBoundedSourceFiles(ctx context.Context, paths, includes
 	return []string(selected), truncated, nil
 }
 
-func (h *Handler) collectSourceSymbolFiles(
+// collectSourceRequestFiles preserves the ordered authorization and aggregate
+// preflight shared by source_symbols and source_query. The latter still performs
+// its separate content fingerprint and index-generation checks afterward.
+func (h *Handler) collectSourceRequestFiles(
 	ctx context.Context,
-	input SourceSymbolsInput,
+	operationName string,
+	paths, includes, excludes []string,
+	respectGitignore *bool,
 	maxFiles int,
 	limits config.SourceConfig,
-) ([]string, bool, *mcp.CallToolResult) {
-	validatedRoots := make([]string, 0, len(input.Paths))
-	for _, path := range input.Paths {
+) ([]string, []string, bool, *mcp.CallToolResult) {
+	validatedRoots := make([]string, 0, len(paths))
+	for _, path := range paths {
 		validated := h.ValidatePath(path)
 		if !validated.Ok() {
-			return nil, false, validated.Result
+			return nil, nil, false, validated.Result
 		}
 		if _, err := os.Stat(validated.Path); err != nil {
-			return nil, false, errorResultFromError(operation.Wrap(operation.KindNotFound, "source_symbols", validated.Path, err))
+			return nil, nil, false, errorResultFromError(operation.Wrap(operation.KindNotFound, operationName, validated.Path, err))
 		}
 		validatedRoots = append(validatedRoots, validated.Path)
 	}
-	files, selectionTruncated, collectErr := h.collectBoundedSourceFiles(ctx, validatedRoots, input.Includes, input.Excludes, shouldRespectGitignore(input.RespectGitignore), maxFiles)
+	files, selectionTruncated, collectErr := h.collectBoundedSourceFiles(ctx, validatedRoots, includes, excludes, shouldRespectGitignore(respectGitignore), maxFiles)
 	if collectErr != nil {
-		return nil, false, errorResultFromError(collectErr)
+		return nil, nil, false, errorResultFromError(collectErr)
 	}
 	var aggregateBytes int64
 	for _, path := range files {
@@ -192,11 +197,24 @@ func (h *Handler) collectSourceSymbolFiles(
 			continue
 		}
 		if info.Size() > limits.MaxAggregateBytes-aggregateBytes {
-			return nil, false, errorResultWithCode(ErrCodeLimit, fmt.Sprintf("selected source bytes exceed aggregate limit %d", limits.MaxAggregateBytes))
+			return nil, nil, false, errorResultWithCode(ErrCodeLimit, fmt.Sprintf("selected source bytes exceed aggregate limit %d", limits.MaxAggregateBytes))
 		}
 		aggregateBytes += info.Size()
 	}
-	return files, selectionTruncated, nil
+	return validatedRoots, files, selectionTruncated, nil
+}
+
+func (h *Handler) collectSourceSymbolFiles(
+	ctx context.Context,
+	input SourceSymbolsInput,
+	maxFiles int,
+	limits config.SourceConfig,
+) ([]string, bool, *mcp.CallToolResult) {
+	_, files, truncated, failed := h.collectSourceRequestFiles(
+		ctx, "source_symbols", input.Paths, input.Includes, input.Excludes,
+		input.RespectGitignore, maxFiles, limits,
+	)
+	return files, truncated, failed
 }
 
 func buildSourceSymbolsOutput(
@@ -214,6 +232,21 @@ func buildSourceSymbolsOutput(
 	kindFilter := make(map[string]struct{}, len(input.Kinds))
 	for _, kind := range input.Kinds {
 		kindFilter[strings.ToLower(strings.TrimSpace(kind))] = struct{}{}
+	}
+	if operationName == "outline" && len(kindFilter) == 0 && maxSymbols > 0 {
+		capacity := 0
+		for _, current := range analyses {
+			if current.file.Status != "parsed" {
+				continue
+			}
+			capacity += min(len(current.analysis.Analysis.Symbols), maxSymbols-capacity)
+			if capacity == maxSymbols {
+				break
+			}
+		}
+		if capacity > 0 {
+			output.Symbols = make([]sourceintelligence.NormalizedSymbol, 0, capacity)
+		}
 	}
 	for _, current := range analyses {
 		keepFile := operationName != "find" || input.FileDetails != "relevant" || !current.file.CoverageComplete
@@ -283,7 +316,18 @@ func presentSourceOutline(files []SourceSymbolsFile, symbols []sourceintelligenc
 		node *SourceOutlineNode
 		path string
 	}
-	seen := make(map[string]ancestor, len(symbols))
+	tree := presentation == "tree"
+	var seen map[string]ancestor
+	if tree {
+		// Flat outlines cannot reference an earlier parent, so they do not
+		// need the potentially large ancestor index.
+		for _, symbol := range symbols {
+			if symbol.ParentID != "" {
+				seen = make(map[string]ancestor, len(symbols))
+				break
+			}
+		}
+	}
 	for _, symbol := range symbols {
 		index, ok := byPath[symbol.Path]
 		if !ok {
@@ -295,7 +339,7 @@ func presentSourceOutline(files []SourceSymbolsFile, symbols []sourceintelligenc
 			Line:          symbol.DeclarationRange.Start.Line, Column: symbol.DeclarationRange.Start.Column,
 			Signature: symbol.Signature,
 		}
-		if presentation == "tree" && symbol.ParentID != "" {
+		if tree && symbol.ParentID != "" {
 			if parent, ok := seen[symbol.ParentID]; ok && parent.path == symbol.Path {
 				parent.node.Children = append(parent.node.Children, node)
 			} else {
@@ -306,7 +350,9 @@ func presentSourceOutline(files []SourceSymbolsFile, symbols []sourceintelligenc
 			node.ParentID = symbol.ParentID
 			out[index].Symbols = append(out[index].Symbols, node)
 		}
-		seen[symbol.ID] = ancestor{node: node, path: symbol.Path}
+		if seen != nil {
+			seen[symbol.ID] = ancestor{node: node, path: symbol.Path}
+		}
 	}
 	return out
 }
@@ -427,10 +473,7 @@ func buildSourceConciseDigest(analyses []sourceFileAnalysis, roots []string, sel
 				out.ConciseAnalysisComplete = false
 				entry.Status = "partial"
 			}
-			parents := make(map[string]sourceintelligence.NormalizedSymbol, len(current.analysis.Analysis.Symbols))
-			for _, symbol := range current.analysis.Analysis.Symbols {
-				parents[symbol.ID] = symbol
-			}
+			parents := sourceConciseParents(current.analysis.Analysis.Symbols)
 			for _, symbol := range current.analysis.Analysis.Symbols {
 				if !sourceConciseTopLevel(symbol, parents) {
 					continue
@@ -455,7 +498,7 @@ func buildSourceConciseDigest(analyses []sourceFileAnalysis, roots []string, sel
 
 // Only package/namespace/module containers may stand between a declaration
 // and file scope; a method or nested class is not a top-level declaration.
-func sourceConciseTopLevel(symbol sourceintelligence.NormalizedSymbol, symbols map[string]sourceintelligence.NormalizedSymbol) bool {
+func sourceConciseTopLevel(symbol sourceintelligence.NormalizedSymbol, symbols map[string]sourceConciseParent) bool {
 	for id, steps := symbol.ParentID, 0; id != ""; steps++ {
 		if steps >= len(symbols) {
 			return false
@@ -464,9 +507,9 @@ func sourceConciseTopLevel(symbol sourceintelligence.NormalizedSymbol, symbols m
 		if !ok {
 			return false
 		}
-		switch parent.Kind {
+		switch parent.kind {
 		case sourceintelligence.SymbolKindPackage, sourceintelligence.SymbolKindNamespace, sourceintelligence.SymbolKindModule:
-			id = parent.ParentID
+			id = parent.parentID
 		default:
 			return false
 		}
@@ -552,7 +595,10 @@ func buildSourceConciseOutline(analyses []sourceFileAnalysis, roots []string, re
 		}
 		ownerByID := make(map[string]int)
 		symbols := current.analysis.Analysis.Symbols
-		parents := sourceConciseParents(symbols)
+		var parents map[string]sourceConciseParent
+		if requestedOwner == "" {
+			parents = sourceConciseParents(symbols)
+		}
 		for _, symbol := range symbols {
 			if !sourceConciseOwnerKind(symbol.Kind) || (requestedOwner != "" &&
 				requestedOwner != symbol.Name && requestedOwner != symbol.QualifiedName) {
@@ -625,10 +671,17 @@ func sourceConciseOwnerKind(kind sourceintelligence.SymbolKind) bool {
 	}
 }
 
-func sourceConciseParents(symbols []sourceintelligence.NormalizedSymbol) map[string]sourceintelligence.NormalizedSymbol {
-	parents := make(map[string]sourceintelligence.NormalizedSymbol, len(symbols))
+// Only these two fields participate in resolving source-owned ancestry.
+// Retaining entire normalized symbols here duplicates large parser records.
+type sourceConciseParent struct {
+	kind     sourceintelligence.SymbolKind
+	parentID string
+}
+
+func sourceConciseParents(symbols []sourceintelligence.NormalizedSymbol) map[string]sourceConciseParent {
+	parents := make(map[string]sourceConciseParent, len(symbols))
 	for _, symbol := range symbols {
-		parents[symbol.ID] = symbol
+		parents[symbol.ID] = sourceConciseParent{kind: symbol.Kind, parentID: symbol.ParentID}
 	}
 	return parents
 }
@@ -682,13 +735,55 @@ func buildSourceDigest(current sourceFileAnalysis) SourceDigest {
 	}
 }
 
+// sourceOutputJSONByteCounter accepts complete encoded chunks without retaining
+// the JSON output only needed for its byte-accurate response budget.
+type sourceOutputJSONByteCounter struct {
+	bytes int64
+}
+
+func (counter *sourceOutputJSONByteCounter) Write(data []byte) (int, error) {
+	if int64(len(data)) > int64(^uint64(0)>>1)-counter.bytes {
+		return 0, fmt.Errorf("source output byte count overflow")
+	}
+	counter.bytes += int64(len(data))
+	return len(data), nil
+}
+
+// sourceEncodedJSONBytes measures the same JSON output size as json.Marshal.
+// Known source outputs already serialize themselves through the legacy JSON
+// marshaler, so avoid encoding their JSON a second time merely to count it.
+// Keep the generic encoder as the fallback for other value types.
+func sourceEncodedJSONBytes(value any) (int64, error) {
+	switch value.(type) {
+	case SourceSymbolsOutput, SourceQueryOutput:
+		encoded, err := value.(json.Marshaler).MarshalJSON()
+		if err != nil {
+			return 0, err
+		}
+		// Both concrete MarshalJSON implementations delegate to json.Marshal,
+		// which has already validated and escaped their complete projections.
+		if len(encoded) == 0 {
+			return 0, operation.New(operation.KindUnknown, "source output encoder returned no data")
+		}
+		return int64(len(encoded)), nil
+	}
+	var counter sourceOutputJSONByteCounter
+	if err := json.NewEncoder(&counter).Encode(value); err != nil {
+		return 0, err
+	}
+	if counter.bytes == 0 {
+		return 0, operation.New(operation.KindUnknown, "source output encoder returned no data")
+	}
+	return counter.bytes - 1, nil
+}
+
 func enforceSourceOutputBudget(output SourceSymbolsOutput, maximum int64) error {
-	encoded, err := json.Marshal(output)
+	encodedBytes, err := sourceEncodedJSONBytes(output)
 	if err != nil {
 		return operation.Wrap(operation.KindUnknown, "source_symbols", "", err)
 	}
-	if int64(len(encoded)) > maximum {
-		return operation.Wrap(operation.KindLimit, "source_symbols", "", fmt.Errorf("source output size %d exceeds limit %d", len(encoded), maximum))
+	if encodedBytes > maximum {
+		return operation.Wrap(operation.KindLimit, "source_symbols", "", fmt.Errorf("source output size %d exceeds limit %d", encodedBytes, maximum))
 	}
 	return nil
 }

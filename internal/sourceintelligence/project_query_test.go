@@ -2,9 +2,11 @@ package sourceintelligence
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/zoster81/scripthold/internal/operation"
@@ -421,6 +423,270 @@ func TestProjectQueryReferencesDefinitionsInheritanceAndImplementations(t *testi
 	}
 }
 
+func TestProjectForwardSourceIDIndexPreservesLegacyRelations(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, ext  string
+		analyzer   SourceAnalyzer
+		typeScript bool
+	}{
+		{"java", "java", JavaAnalyzer{}, false},
+		{"typescript", "ts", TypeScriptAnalyzer{}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := filepath.Join("project", "source-ids", tc.name)
+			baseText := "package demo; public class Base {}\n"
+			if tc.typeScript {
+				baseText = "export class Base {}\n"
+			}
+			base := projectResolverFacts(t, tc.analyzer, filepath.Join(root, "Base."+tc.ext), baseText)
+			facts := []ProjectFileFacts{base}
+			var duplicateID = "duplicated-across-source-files"
+			for index := 0; index < 70; index++ {
+				source := fmt.Sprintf("package demo; public class Child%03d extends Base {}\n", index)
+				if tc.typeScript {
+					source = fmt.Sprintf("import { Base } from './Base';\nexport class Child%03d extends Base {}\n", index)
+				}
+				fact := projectResolverFacts(t, tc.analyzer, filepath.Join(root, fmt.Sprintf("Child%03d.%s", index, tc.ext)), source)
+				if index == 1 || index == 2 {
+					for position := range fact.Analysis.Analysis.Symbols {
+						if fact.Analysis.Analysis.Symbols[position].Kind == SymbolKindClass {
+							fact.Analysis.Analysis.Symbols[position].ID = duplicateID
+						}
+					}
+				}
+				facts = append(facts, fact)
+			}
+			model, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(model.references) != 70 || len(model.referencesBySourceID) == 0 || len(model.referencesBySourceID[duplicateID]) != 2 {
+				t.Fatalf("dense forward index incomplete: references=%d indexedIDs=%d duplicateRefs=%d", len(model.references), len(model.referencesBySourceID), len(model.referencesBySourceID[duplicateID]))
+			}
+			linear := *model
+			linear.referencesBySourceID = nil
+			qualified := func(name string) string {
+				if tc.typeScript {
+					return name
+				}
+				return "demo." + name
+			}
+			baseID := projectSymbolID(t, base, qualified("Base"))
+			lateID := projectSymbolID(t, facts[len(facts)-1], qualified("Child069"))
+			for _, tc2 := range []struct {
+				name string
+				fact ProjectFileFacts
+				id   string
+			}{
+				{"base", base, baseID},
+				{"late", facts[len(facts)-1], lateID},
+				{"duplicate-first", facts[2], duplicateID},
+				{"duplicate-second", facts[3], duplicateID},
+			} {
+				for _, maxResults := range []int{1, 200} {
+					for _, evidence := range [][]SymbolEvidence{nil, {SymbolEvidenceProjectResolved}, {SymbolEvidenceStructural}} {
+						limits := ProjectQueryLimits{MaxResults: maxResults, MaxNodes: 200, MaxEdges: 200, MaxDepth: 2}
+						selector := ProjectSelector{Kind: ProjectSelectorSymbol, Path: tc2.fact.Path, SourceFingerprint: tc2.fact.SourceFingerprint, SymbolID: tc2.id}
+						got, gotErr := model.QueryRelations(context.Background(), RelationInheritance, selector, ProjectSelector{}, evidence, limits)
+						want, wantErr := linear.QueryRelations(context.Background(), RelationInheritance, selector, ProjectSelector{}, evidence, limits)
+						if operation.KindOf(gotErr) != operation.KindOf(wantErr) || !reflect.DeepEqual(got, want) {
+							t.Fatalf("%s/%s max=%d evidence=%v indexed=%+v err=%v linear=%+v err=%v", tc.name, tc2.name, maxResults, evidence, got, gotErr, want, wantErr)
+						}
+						gotJSON, err := json.Marshal(got)
+						if err != nil {
+							t.Fatal(err)
+						}
+						wantJSON, err := json.Marshal(want)
+						if err != nil || string(gotJSON) != string(wantJSON) {
+							t.Fatalf("serialized parity %s/%s max=%d: indexed=%s linear=%s err=%v", tc.name, tc2.name, maxResults, gotJSON, wantJSON, err)
+						}
+						if tc2.id == duplicateID && maxResults == 200 && len(evidence) == 0 && len(got.Records) != 2 {
+							t.Fatalf("cross-file duplicate IDs must still produce both relations: %+v", got)
+						}
+					}
+				}
+			}
+			stale := ProjectSelector{Kind: ProjectSelectorSymbol, Path: facts[2].Path, SourceFingerprint: "stale-fingerprint", SymbolID: duplicateID}
+			limits := ProjectQueryLimits{MaxResults: 10, MaxNodes: 10, MaxEdges: 10, MaxDepth: 2}
+			_, indexedErr := model.QueryRelations(context.Background(), RelationInheritance, stale, ProjectSelector{}, nil, limits)
+			_, legacyErr := linear.QueryRelations(context.Background(), RelationInheritance, stale, ProjectSelector{}, nil, limits)
+			if operation.KindOf(indexedErr) != operation.KindConflict || operation.KindOf(legacyErr) != operation.KindConflict {
+				t.Fatalf("stale source fingerprint parity indexed=%v legacy=%v", indexedErr, legacyErr)
+			}
+		})
+	}
+}
+
+// Pin the position fallback's ordering and half-open range rules before
+// considering any positional index. Records are sorted by model order, not by
+// source location; equal-priority/equal-start matches keep the first record.
+func TestMostSpecificSymbolAtPriorityAndRangeTies(t *testing.T) {
+	rangeAt := func(startLine, startColumn, endLine, endColumn int) Range {
+		return Range{Start: Position{Line: startLine, Column: startColumn},
+			End: Position{Line: endLine, Column: endColumn}}
+	}
+	outer := projectSymbolRecord{
+		symbol: NormalizedSymbol{ID: "outer", DeclarationRange: rangeAt(1, 1, 14, 1),
+			NameRange: rangeAt(1, 4, 1, 10)},
+		entity: RelationEntity{QualifiedName: "pkg.Outer"},
+	}
+	child := projectSymbolRecord{
+		symbol: NormalizedSymbol{ID: "child", DeclarationRange: rangeAt(5, 1, 8, 1),
+			NameRange: rangeAt(5, 5, 5, 10)},
+		entity: RelationEntity{QualifiedName: "pkg.ZChild"},
+	}
+	alias := projectSymbolRecord{
+		symbol: NormalizedSymbol{ID: "alias", DeclarationRange: rangeAt(5, 1, 8, 1),
+			NameRange: rangeAt(5, 5, 5, 10)},
+		entity: RelationEntity{QualifiedName: "pkg.AAlias"},
+	}
+	laterBody := rangeAt(7, 1, 9, 1)
+	later := projectSymbolRecord{
+		symbol: NormalizedSymbol{ID: "later", DeclarationRange: rangeAt(6, 1, 7, 1),
+			NameRange: rangeAt(6, 5, 6, 10), BodyRange: &laterBody},
+		entity: RelationEntity{QualifiedName: "pkg.Later"},
+	}
+	records := []projectSymbolRecord{child, outer, later, alias}
+	sortProjectSymbolRecords(records)
+	for _, tc := range []struct {
+		name string
+		at   Position
+		want string
+	}{
+		{"name-over-declaration", Position{5, 6}, "alias"},
+		{"declaration-later-start", Position{5, 12}, "alias"},
+		{"name-over-enclosing-declaration", Position{6, 6}, "later"},
+		{"declaration-over-body", Position{7, 2}, "alias"},
+		{"outer-declaration", Position{9, 2}, "outer"},
+		{"end-is-exclusive", Position{14, 1}, ""},
+		{"before-any-declaration", Position{1, 0}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, found := mostSpecificSymbolAt(records, tc.at)
+			if found != (tc.want != "") || (found && got.symbol.ID != tc.want) {
+				t.Fatalf("position %+v selected %q (found=%v), want %q", tc.at, got.symbol.ID, found, tc.want)
+			}
+		})
+	}
+
+	earlierBody := rangeAt(3, 1, 12, 1)
+	laterBody = rangeAt(5, 1, 10, 1)
+	bodyRecords := []projectSymbolRecord{
+		{symbol: NormalizedSymbol{ID: "earlier", DeclarationRange: rangeAt(1, 1, 1, 12),
+			NameRange: rangeAt(1, 3, 1, 8), BodyRange: &earlierBody},
+			entity: RelationEntity{QualifiedName: "pkg.AEarlier"}},
+		{symbol: NormalizedSymbol{ID: "later", DeclarationRange: rangeAt(4, 1, 4, 12),
+			NameRange: rangeAt(4, 3, 4, 8), BodyRange: &laterBody},
+			entity: RelationEntity{QualifiedName: "pkg.ZLater"}},
+	}
+	sortProjectSymbolRecords(bodyRecords)
+	if got, ok := mostSpecificSymbolAt(bodyRecords, Position{6, 3}); !ok || got.symbol.ID != "later" {
+		t.Fatalf("overlapping bodies must select later declaration: %+v found=%v", got, ok)
+	}
+}
+
+func TestProjectPositionSelectorsPreserveCanonicalSourceAliases(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join("project", "position-alias")
+	base := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join(root, "Base.java"), "package demo; public class Base {}\n")
+	impl := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join(root, "Impl.java"), "package demo; public class Impl extends Base {}\n")
+	sep := string(filepath.Separator)
+	alias := filepath.Dir(impl.Path) + sep + "nested" + sep + ".." + sep + filepath.Base(impl.Path)
+	if alias == impl.Path || projectPathKey(alias) != projectPathKey(impl.Path) {
+		t.Fatal("test fixture must use a different spelling for the same canonical path")
+	}
+	for index := range impl.Analysis.Analysis.Symbols {
+		impl.Analysis.Analysis.Symbols[index].Path = alias
+	}
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{impl, base}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var reference ProjectReference
+	for _, candidate := range model.References() {
+		if candidate.TargetSpelling == "Base" {
+			reference = candidate
+			break
+		}
+	}
+	if reference.Source.Path != alias {
+		t.Fatalf("expected the original symbol path spelling to survive, got %q", reference.Source.Path)
+	}
+	baseID := projectSymbolID(t, base, "demo.Base")
+	position := reference.Range.Start
+	selector := ProjectSelector{Kind: ProjectSelectorPosition, Path: impl.Path, Position: &position, SourceFingerprint: impl.SourceFingerprint}
+	definitions, err := model.QueryRelations(context.Background(), RelationDefinitions, selector, ProjectSelector{}, nil, queryLimits())
+	if err != nil || len(definitions.Records) != 1 || definitions.Records[0].Target.SymbolID != baseID {
+		t.Fatalf("canonical source path relation resolution changed: %+v, err=%v", definitions, err)
+	}
+	plan, err := model.PlanContext(context.Background(), []ProjectSelector{selector}, ProjectContextOptions{
+		BudgetBytes: 4096, MaxItems: 8, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly,
+	})
+	if err != nil || !containsContextSymbol(plan.Candidates, baseID) {
+		t.Fatalf("canonical source path context resolution changed: %+v, err=%v", plan, err)
+	}
+	selector.SourceFingerprint = queryZeroDigest()
+	if _, err = model.QueryRelations(context.Background(), RelationDefinitions, selector, ProjectSelector{}, nil, queryLimits()); err == nil {
+		t.Fatal("stale source fingerprint was accepted by position selector")
+	}
+	if _, err = model.PlanContext(context.Background(), []ProjectSelector{selector}, ProjectContextOptions{
+		BudgetBytes: 4096, MaxItems: 8, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly,
+	}); err == nil {
+		t.Fatal("stale source fingerprint was accepted by context selector")
+	}
+}
+
+func TestProjectPositionSourceIndexRetainsCanonicalSortedOverlaps(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join("project", "position-order")
+	base := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join(root, "Base.java"), "package demo; public class Base {}\n")
+	contract := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join(root, "Contract.java"), "package demo; public interface Contract {}\n")
+	impl := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join(root, "Impl.java"), "package demo; public class Impl extends Base implements Contract {}\n")
+	if len(impl.Analysis.Relations) < 2 {
+		t.Fatalf("expected independent inheritance and implementation references, got %d", len(impl.Analysis.Relations))
+	}
+	// Two distinct references share one position, so the original sorted
+	// first-match rule must survive source bucketing.
+	impl.Analysis.Relations[1].Range = impl.Analysis.Relations[0].Range
+	sep := string(filepath.Separator)
+	alias := filepath.Dir(impl.Path) + sep + "nested" + sep + ".." + sep + filepath.Base(impl.Path)
+	for i := range impl.Analysis.Analysis.Symbols {
+		impl.Analysis.Analysis.Symbols[i].Path = alias
+	}
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{impl, contract, base}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := make(map[string][]int)
+	for i, reference := range model.references {
+		key := projectPathKey(reference.Source.Path)
+		expected[key] = append(expected[key], i)
+	}
+	if !reflect.DeepEqual(model.referencesBySource, expected) {
+		t.Fatalf("source index changed canonical membership or deterministic order: got=%v want=%v", model.referencesBySource, expected)
+	}
+	key := projectPathKey(impl.Path)
+	if len(expected[key]) < 2 {
+		t.Fatalf("test must exercise overlapping source references: %v", expected)
+	}
+	position := model.references[expected[key][0]].Range.Start
+	selector := ProjectSelector{Kind: ProjectSelectorPosition, Path: impl.Path, SourceFingerprint: impl.SourceFingerprint, Position: &position}
+	selected, err := model.resolveProjectSelector(selector)
+	if err != nil || selected.reference == nil || selected.reference.ID != model.references[expected[key][0]].ID {
+		t.Fatalf("position tie-break changed: selected=%+v err=%v", selected, err)
+	}
+}
+
 func TestStructuralSearchUsesNormalizedSymbolsAndRelations(t *testing.T) {
 	registry, err := DefaultLanguageRegistry()
 	if err != nil {
@@ -470,6 +736,230 @@ func TestStructuralSearchUsesNormalizedSymbolsAndRelations(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("relation search = %+v", relations)
+	}
+}
+
+func TestStructuralSearchKindFiltersMatchUnfilteredPublicProjection(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join("project", "kind-filter-parity")
+	facts := []ProjectFileFacts{
+		projectResolverFacts(t, JavaAnalyzer{}, filepath.Join(root, "ChildA.java"), "package demo; public class ChildA { public void Run() {} }\n"),
+		projectResolverFacts(t, JavaAnalyzer{}, filepath.Join(root, "ChildB.java"), "package demo; public class ChildB { public void Run() {} }\n"),
+	}
+	model, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name    string
+		options ProjectSearchOptions
+	}{
+		{"exact-class", ProjectSearchOptions{Query: "ChildB", Match: ProjectSearchExact, Kinds: []string{"CLASS"}, MaxResults: 2}},
+		{"exact-qualified", ProjectSearchOptions{Query: "demo.ChildB", Match: ProjectSearchExact, Kinds: []string{"class"}, MaxResults: 2}},
+		{"exact-method-truncated", ProjectSearchOptions{Query: "Run", Match: ProjectSearchExact, Kinds: []string{"method"}, MaxResults: 1}},
+		{"exact-case-sensitive", ProjectSearchOptions{Query: "childb", Match: ProjectSearchExact, Kinds: []string{"class"}, MaxResults: 2}},
+		{"exact-missing", ProjectSearchOptions{Query: "Absent", Match: ProjectSearchExact, Kinds: []string{"class"}, MaxResults: 2}},
+		{"prefix-truncated", ProjectSearchOptions{Query: "Child", Match: ProjectSearchPrefix, Kinds: []string{" class "}, MaxResults: 1}},
+		{"prefix-rejected-kind", ProjectSearchOptions{Query: "Child", Match: ProjectSearchPrefix, Kinds: []string{"method"}, MaxResults: 8}},
+		{"contains-method", ProjectSearchOptions{Query: "Run", Match: ProjectSearchContains, Kinds: []string{"method"}, MaxResults: 8}},
+		{"filtered-evidence", ProjectSearchOptions{Query: "Child", Match: ProjectSearchPrefix, Kinds: []string{"class"}, Evidence: []SymbolEvidence{SymbolEvidenceProjectResolved}, MaxResults: 8}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rawOptions := tc.options
+			rawOptions.Kinds = nil
+			rawOptions.MaxResults = 128
+			raw, err := model.StructuralSearch(context.Background(), rawOptions)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := model.StructuralSearch(context.Background(), tc.options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			filtered := make([]ProjectSearchMatch, 0)
+			for _, match := range raw.Matches {
+				if match.SymbolID == "" {
+					continue
+				}
+				for _, kind := range tc.options.Kinds {
+					if strings.EqualFold(strings.TrimSpace(kind), string(match.Kind)) {
+						filtered = append(filtered, match)
+						break
+					}
+				}
+			}
+			want := finalizeProjectSearch(filtered, tc.options.MaxResults)
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("filtered structural result mismatch: got=%+v want=%+v", got, want)
+			}
+			gotJSON, err := json.Marshal(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantJSON, err := json.Marshal(want)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(gotJSON) != string(wantJSON) {
+				t.Fatalf("filtered JSON mismatch: got=%s want=%s", gotJSON, wantJSON)
+			}
+		})
+	}
+}
+
+// A composite file may contain symbols from an embedded provider. Exact
+// kind-filtered searches must not lose them when the fast name index is active.
+func TestIndexedExactKindSearchIncludesEmbeddedLanguageSymbols(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source strings.Builder
+	for index := 0; index < 40; index++ {
+		fmt.Fprintf(&source, "<span id=\"node-%02d\"></span>\n", index)
+	}
+	source.WriteString("@php class EmbeddedService { public function run() {} } @endphp\n")
+	facts := projectResolverFacts(t, BladeAnalyzer{}, "project/views/example.blade.php", source.String())
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(model.symbolsByName) < 32 {
+		t.Fatalf("fixture must enable exact lookup index: %d symbols", len(model.symbolsByName))
+	}
+	if model.hasSourceSpelling {
+		t.Fatal("fixture must exercise the indexed path, not the original-spelling fallback")
+	}
+	var embedded *projectSymbolRecord
+	for index := range model.symbolsByFile[projectPathKey(facts.Path)] {
+		record := &model.symbolsByFile[projectPathKey(facts.Path)][index]
+		if record.symbol.Name == "EmbeddedService" {
+			embedded = record
+			break
+		}
+	}
+	if embedded == nil || embedded.symbol.Kind != SymbolKindClass || embedded.languageID != "php" {
+		t.Fatalf("expected a PHP class inside the Blade file, got %+v", embedded)
+	}
+	if !model.hasMixedSymbolLanguage {
+		t.Fatal("composite file must be recognized before indexed exact searches")
+	}
+	if candidates, indexed := model.exactSymbolCandidates("EmbeddedService"); indexed || candidates != nil {
+		t.Fatalf("embedded-language search must use full scan: %+v indexed=%t", candidates, indexed)
+	}
+	for _, kinds := range [][]string{nil, {"class"}} {
+		result, err := model.StructuralSearch(context.Background(), ProjectSearchOptions{
+			Query: "EmbeddedService", Match: ProjectSearchExact, Kinds: kinds, MaxResults: 8,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Matches) != 1 || result.Matches[0].SymbolID != embedded.symbol.ID {
+			t.Fatalf("exact search with kinds=%v lost embedded PHP class: %+v", kinds, result.Matches)
+		}
+	}
+}
+
+func TestIndexedExactKindSearchCandidatesAndOriginalAliasFallback(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := []ProjectFileFacts{
+		projectResolverFacts(t, JavaAnalyzer{}, "project/exact-index/ChildA.java", "package demo; public class ChildA {}\n"),
+		projectResolverFacts(t, JavaAnalyzer{}, "project/exact-index/ChildB.java", "package demo; public class ChildB {}\n"),
+	}
+	model, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, query := range []string{"ChildB", "demo.ChildB"} {
+		candidates, indexed := model.exactSymbolCandidates(query)
+		if !indexed || len(candidates) != 1 || candidates[0].symbol.Name != "ChildB" {
+			t.Fatalf("query %q candidates=%+v indexed=%t", query, candidates, indexed)
+		}
+	}
+	if candidates, indexed := model.exactSymbolCandidates("MissingClass"); !indexed || len(candidates) != 0 {
+		t.Fatalf("missing exact candidate index: candidates=%+v indexed=%t", candidates, indexed)
+	}
+	for index := range facts[1].Analysis.Analysis.Symbols {
+		if facts[1].Analysis.Analysis.Symbols[index].Name == "ChildB" {
+			facts[1].Analysis.Analysis.Symbols[index].sourceSpelling = "ChildB$"
+		}
+	}
+	aliasModel, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidates, indexed := aliasModel.exactSymbolCandidates("ChildB$"); indexed || candidates != nil {
+		t.Fatalf("original spelling must preserve full-scan semantics: candidates=%+v indexed=%t", candidates, indexed)
+	}
+	result, err := aliasModel.StructuralSearch(context.Background(), ProjectSearchOptions{
+		Query: "ChildB$", Match: ProjectSearchExact, Kinds: []string{"class"}, MaxResults: 2,
+	})
+	if err != nil || len(result.Matches) != 1 || result.Matches[0].Name != "ChildB" {
+		t.Fatalf("original spelling lookup mismatch: result=%+v err=%v", result, err)
+	}
+}
+
+func TestIndexedExactKindSearchPaginationParity(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	facts := make([]ProjectFileFacts, 0, 40)
+	for index := 0; index < 40; index++ {
+		name := fmt.Sprintf("Child%03d", index)
+		facts = append(facts, projectResolverFacts(t, JavaAnalyzer{}, "project/exact-pages/"+name+".java",
+			"package demo; public class "+name+" { public void Run() {} }\n"))
+	}
+	model, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidates, indexed := model.exactSymbolCandidates("Run"); !indexed || len(candidates) != 40 {
+		t.Fatalf("indexed method candidates=%d indexed=%t", len(candidates), indexed)
+	}
+	raw, err := model.StructuralSearch(context.Background(), ProjectSearchOptions{
+		Query: "Run", Match: ProjectSearchExact, MaxResults: 256,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := make([]ProjectSearchMatch, 0, 40)
+	for _, match := range raw.Matches {
+		if match.Kind == SymbolKindMethod {
+			want = append(want, match)
+		}
+	}
+	if len(want) != 40 {
+		t.Fatalf("unfiltered method count=%d want=40", len(want))
+	}
+	for repeat := 0; repeat < 3; repeat++ {
+		var combined []ProjectSearchMatch
+		var after *ProjectSearchMatch
+		var occurrences int
+		for page := 0; page < 10; page++ {
+			result, err := model.StructuralSearch(context.Background(), ProjectSearchOptions{
+				Query: "Run", Match: ProjectSearchExact, Kinds: []string{"method"}, MaxResults: 7,
+				After: after, AfterOccurrences: occurrences,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			combined = append(combined, result.Matches...)
+			if !result.Truncated {
+				break
+			}
+			last := result.Matches[len(result.Matches)-1]
+			after, occurrences = &last, result.LastOccurrences
+		}
+		if !reflect.DeepEqual(combined, want) {
+			t.Fatalf("repeat %d paged exact search differs: got=%+v want=%+v", repeat, combined, want)
+		}
 	}
 }
 
@@ -547,6 +1037,110 @@ func TestProjectSearchContinuesWithoutSkippingEqualKeys(t *testing.T) {
 		if !reflect.DeepEqual(got, want.Matches) {
 			t.Fatalf("page size %d changed global order: got=%+v want=%+v", pageSize, got, want.Matches)
 		}
+	}
+}
+
+func TestProjectSearchTopKDefersUnmatchedHeapAllocation(t *testing.T) {
+	for _, maximum := range []int{1, 16, 256, 4096} {
+		t.Run(fmt.Sprintf("limit-%d", maximum), func(t *testing.T) {
+			collector := newProjectSearchTopK(maximum)
+			if collector.matches == nil {
+				t.Fatal("unmatched search must preserve a non-nil empty slice")
+			}
+			if capacity := cap(collector.matches); capacity != 0 {
+				t.Fatalf("unmatched search reserved %d records before any match", capacity)
+			}
+			got, err := json.Marshal(collector.result())
+			if err != nil {
+				t.Fatal(err)
+			}
+			const want = `{"Matches":[],"Truncated":false,"LastOccurrences":0}`
+			if string(got) != want {
+				t.Fatalf("empty search JSON = %s, want %s", got, want)
+			}
+		})
+	}
+}
+
+func TestProjectSearchTopKUsesSmallStorageUntilSecondMatch(t *testing.T) {
+	for _, maximum := range []int{1, 7, 16, 64, 256, 4096} {
+		t.Run(fmt.Sprintf("limit-%d", maximum), func(t *testing.T) {
+			collector := newProjectSearchTopK(maximum)
+			collector.append(ProjectSearchMatch{Name: "First"})
+			wantFirst := minInt(maximum, 256)
+			if maximum >= 16 {
+				wantFirst = 1
+			}
+			if got := cap(collector.matches); got != wantFirst {
+				t.Fatalf("first match capacity=%d, want=%d", got, wantFirst)
+			}
+			if maximum > 1 {
+				collector.append(ProjectSearchMatch{Name: "Second"})
+				if got, want := cap(collector.matches), minInt(maximum, 256); got != want {
+					t.Fatalf("second match capacity=%d, want=%d", got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestProjectSearchTopKLazyAllocationMatchesOriginalOrderingAndJSON(t *testing.T) {
+	records := make([]ProjectSearchMatch, 320)
+	for index := range records {
+		// Identical groups exercise stable repeated anchors and last occurrences.
+		records[index] = ProjectSearchMatch{
+			Path:          fmt.Sprintf("project/item-%03d.ts", index/4),
+			Name:          fmt.Sprintf("Item%03d", index/4),
+			QualifiedName: fmt.Sprintf("demo.Item%03d", index/4),
+		}
+	}
+	anchor := records[16]
+	for _, tc := range []struct {
+		name             string
+		maximum          int
+		records          []ProjectSearchMatch
+		after            *ProjectSearchMatch
+		afterOccurrences int
+	}{
+		{name: "empty-limit-one", maximum: 1},
+		{name: "empty-large-limit", maximum: 4096},
+		{name: "one-late-match", maximum: 512, records: records[319:]},
+		{name: "all-small-limit", maximum: 1, records: records},
+		{name: "all-truncated", maximum: 32, records: records},
+		{name: "all-untruncated", maximum: 512, records: records},
+		{name: "repeated-anchor", maximum: 32, records: records, after: &anchor, afterOccurrences: 2},
+		{name: "continuation-no-matches", maximum: 512, records: records[:12], after: &anchor, afterOccurrences: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			legacy := &projectSearchTopK{
+				matches:          make(projectSearchWorstHeap, 0, minInt(tc.maximum, 256)),
+				maximum:          tc.maximum,
+				after:            tc.after,
+				afterOccurrences: tc.afterOccurrences,
+			}
+			candidate := newProjectSearchTopK(tc.maximum)
+			candidate.after, candidate.afterOccurrences = tc.after, tc.afterOccurrences
+			for _, record := range tc.records {
+				legacy.append(record)
+				candidate.append(record)
+			}
+			want, got := legacy.result(), candidate.result()
+			if !reflect.DeepEqual(got, want) || candidate.seenAfter != legacy.seenAfter {
+				t.Fatalf("top-K differs from original: got=%+v want=%+v, seenAfter=%d/%d",
+					got, want, candidate.seenAfter, legacy.seenAfter)
+			}
+			legacyJSON, err := json.Marshal(want)
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidateJSON, err := json.Marshal(got)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(candidateJSON) != string(legacyJSON) {
+				t.Fatalf("top-K JSON differs: got=%s want=%s", candidateJSON, legacyJSON)
+			}
+		})
 	}
 }
 

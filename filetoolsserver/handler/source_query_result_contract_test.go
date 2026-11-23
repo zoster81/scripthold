@@ -3,12 +3,112 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/zoster81/scripthold/internal/operation"
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
+
+func TestSourceQueryOutputBudgetMatchesExactJSONLength(t *testing.T) {
+	matches := make([]SourceSearchMatch, 128)
+	for index := range matches {
+		matches[index] = SourceSearchMatch{
+			Path:              "src/à<&>/demo.go",
+			Language:          "go",
+			Name:              fmt.Sprintf("Name%03d😀", index),
+			QualifiedName:     fmt.Sprintf("demo.Name%03d", index),
+			Kind:              sourceintelligence.SymbolKindFunction,
+			SourceFingerprint: "sha256:fixed",
+			SymbolID:          fmt.Sprintf("symbol-%03d", index),
+		}
+	}
+	search := &SourceSearchResult{Matches: matches, NextCursor: "cursor<&>"}
+	relations := &SourceRelationsResult{Relation: sourceintelligence.RelationDependencies,
+		EvidenceScope: "indexed-relations-only"}
+	contextResult := &SourceContextResult{Items: []sourceintelligence.ContextItem{}, UsedBytes: 0, BudgetBytes: 4096}
+	cases := []struct {
+		name   string
+		output SourceQueryOutput
+	}{
+		{name: "search", output: SourceQueryOutput{Operation: "search", Search: search}},
+		{name: "concise-search", output: SourceQueryOutput{
+			Operation: "search", Presentation: "concise", Search: search, RequestedEncoding: "utf-8",
+		}},
+		{name: "relations", output: SourceQueryOutput{Operation: "relations", Relations: relations}},
+		{name: "concise-relations", output: SourceQueryOutput{
+			Operation: "relations", Presentation: "concise", Relations: relations,
+		}},
+		{name: "context", output: SourceQueryOutput{Operation: "context", Context: contextResult}},
+		{name: "concise-context", output: SourceQueryOutput{
+			Operation: "context", Presentation: "concise", Context: contextResult,
+		}},
+		{name: "invalid-utf8-escapes", output: SourceQueryOutput{Operation: "search", Search: &SourceSearchResult{Matches: []SourceSearchMatch{{Path: "src/<&>.go", Name: "broken\xff\u2028😀", QualifiedName: "symbol<&>", Kind: sourceintelligence.SymbolKindFunction}}}}},
+		{name: "empty", output: SourceQueryOutput{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := json.Marshal(tc.output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			direct, directErr := tc.output.MarshalJSON()
+			if directErr != nil {
+				t.Fatalf("direct legacy JSON: %v", directErr)
+			}
+			if string(direct) != string(encoded) {
+				t.Fatalf("direct legacy JSON changed wire response: length=%d, encoded=%d", len(direct), len(encoded))
+			}
+			for _, maximum := range []int64{0, 1, int64(len(encoded)) - 1, int64(len(encoded)), int64(len(encoded)) + 1} {
+				got := enforceSourceQueryOutputBudget(tc.output, maximum)
+				if maximum < int64(len(encoded)) {
+					if operation.KindOf(got) != operation.KindLimit {
+						t.Fatalf("budget=%d bytes=%d kind=%s err=%v", maximum, len(encoded), operation.KindOf(got), got)
+					}
+					want := fmt.Sprintf("source query output size %d exceeds limit %d", len(encoded), maximum)
+					if !strings.Contains(got.Error(), want) {
+						t.Fatalf("budget=%d output length error changed: %v", maximum, got)
+					}
+				} else if got != nil {
+					t.Fatalf("budget=%d exact JSON bytes=%d unexpectedly failed: %v", maximum, len(encoded), got)
+				}
+			}
+		})
+	}
+	invalid := SourceQueryOutput{Operation: "invalid", Presentation: "concise"}
+	err := enforceSourceQueryOutputBudget(invalid, 4096)
+	if operation.KindOf(err) != operation.KindUnknown ||
+		!strings.Contains(err.Error(), "concise source query requires search, relations, or context results") {
+		t.Fatalf("custom JSON serialization error changed: %v", err)
+	}
+}
+
+func BenchmarkSourceQueryBudgetEncoding(b *testing.B) {
+	matches := make([]SourceSearchMatch, 256)
+	for index := range matches {
+		matches[index] = SourceSearchMatch{
+			Path: "src/file.go", Language: "go",
+			Name:              fmt.Sprintf("Name%03d", index),
+			QualifiedName:     fmt.Sprintf("pkg.Name%03d", index),
+			SourceFingerprint: "source-v1:fixed",
+			SymbolID:          fmt.Sprintf("symbol-%03d", index),
+		}
+	}
+	output := SourceQueryOutput{Operation: "search", Search: &SourceSearchResult{Matches: matches}}
+	if err := enforceSourceQueryOutputBudget(output, 1<<25); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for index := 0; index < b.N; index++ {
+		if err := enforceSourceQueryOutputBudget(output, 1<<25); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
 
 func TestSourceQueryConciseRelationsPartialAmbiguityAndStale(t *testing.T) {
 	output := SourceQueryOutput{
@@ -211,6 +311,47 @@ func TestSourceQueryStructuredResultContract(t *testing.T) {
 	}
 	if got := relation["resolution"]; got != "ambiguous" {
 		t.Fatalf("relation.resolution = %#v, want ambiguous", got)
+	}
+}
+
+// The public search envelope must expose PHP symbols embedded in a Blade file,
+// even when dense host declarations activate the exact kind-filtered index.
+func TestSourceQueryIndexedKindFilterIncludesEmbeddedBladePHP(t *testing.T) {
+	root := canonicalHandlerTestDir(t)
+	path := filepath.Join(root, "view.blade.php")
+	var text strings.Builder
+	for index := 0; index < 40; index++ {
+		fmt.Fprintf(&text, "<span id=\"host-%03d\"></span>\n", index)
+	}
+	text.WriteString("@php class EmbeddedService { public function run() {} } @endphp\n")
+	writeSourceQueryFixture(t, path, text.String())
+
+	h := NewHandler([]string{root})
+	for _, tc := range []struct {
+		name  string
+		kinds []string
+	}{
+		{name: "unfiltered"},
+		{name: "kind-filtered", kinds: []string{"class"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, out, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+				Operation: "search", Paths: []string{path}, Query: "EmbeddedService",
+				Mode: "structural", Match: "exact", Language: "blade", Encoding: "utf-8",
+				Kinds: tc.kinds, MaxFiles: 1, MaxResults: 8,
+			})
+			if err != nil || (result != nil && result.IsError) {
+				t.Fatalf("public search result=%+v err=%v", result, err)
+			}
+			if !out.Coverage.CoverageComplete || out.Search == nil || len(out.Search.Matches) != 1 {
+				t.Fatalf("public search lost embedded PHP declaration: %+v", out)
+			}
+			match := out.Search.Matches[0]
+			if match.Name != "EmbeddedService" || match.Kind != sourceintelligence.SymbolKindClass ||
+				match.Language != "php" || match.Path != path || match.SymbolID == "" {
+				t.Fatalf("public embedded-language search match = %+v", match)
+			}
+		})
 	}
 }
 

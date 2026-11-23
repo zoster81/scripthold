@@ -74,7 +74,7 @@ jobs:
           printf 'TMPDIR=%s\nGOTMPDIR=%s\n' "${RUNNER_TEMP}" "${RUNNER_TEMP}" >> "${GITHUB_ENV}"
 
       - name: Set up Go from the exact historical source
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: source/go.mod
           cache-dependency-path: source/go.sum
@@ -83,14 +83,14 @@ jobs:
         uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
         with:
           distribution: goreleaser
-          version: 'v2.18.1'
+          version: 'v2.20.3'
           workdir: source
           args: release --clean --skip=publish,announce
 
       - name: Set up pinned Node for independent output checks
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '26.11.1'
+          node-version: '26.13.1'
           package-manager-cache: false
 
       - name: Check all 13 original assets and their checksum closure

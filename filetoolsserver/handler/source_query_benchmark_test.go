@@ -3,13 +3,324 @@ package handler
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/zoster81/scripthold/internal/filesystem"
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
+
+// BenchmarkSourceQuerySelectionFingerprintStages isolates the authorized file
+// preflight and full content fingerprint from a warm SourceQuery on identical
+// inputs. Fingerprint isolation is serial, whereas the handler uses workers;
+// these sub-benchmarks are not additive end-to-end timing components.
+func BenchmarkSourceQuerySelectionFingerprintStages(b *testing.B) {
+	root := b.TempDir()
+	const fileCount = 80
+	for index := 0; index < fileCount; index++ {
+		name := fmt.Sprintf("Item%03d", index)
+		content := fmt.Sprintf("package bench; public class %s { public int value() { return %d; } }\n", name, index)
+		if err := os.WriteFile(filepath.Join(root, name+".java"), []byte(content), 0o600); err != nil {
+			b.Fatal(err)
+		}
+	}
+	ctx := context.Background()
+	h := NewHandler([]string{root})
+	limits := h.sourceLimits()
+	roots, files, truncated, failed := h.collectSourceRequestFiles(
+		ctx, "source_query", []string{root}, nil, nil, nil, fileCount, limits,
+	)
+	if failed != nil || len(roots) != 1 || len(files) != fileCount || truncated {
+		b.Fatalf("preflight roots=%d files=%d truncated=%t failed=%+v", len(roots), len(files), truncated, failed)
+	}
+	input := SourceQueryInput{
+		Operation: "search", Paths: []string{root}, Query: "Item079",
+		Mode: "structural", Match: "exact", Language: "java",
+		Encoding: "utf-8", MaxFiles: fileCount, MaxResults: 16,
+	}
+	seedError, seed, seedErr := h.SourceQuery(ctx, nil, input)
+	if seedErr != nil || seedError != nil || seed.Search == nil || len(seed.Search.Matches) != 1 {
+		b.Fatalf("warm seed result=%+v err=%v output=%+v", seedError, seedErr, seed)
+	}
+	// The stages below are independent probes, not additive slices of wall time.
+	// Keep authorization and traversal intact: preflight also enforces aggregate limits.
+	b.Run("root-validation-1", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			validated := h.ValidatePath(root)
+			if !validated.Ok() {
+				b.Fatalf("source root validation failed: %+v", validated.Result)
+			}
+		}
+	})
+	b.Run("secure-file-selection-80", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			selected, selectedTruncated, err := h.collectBoundedSourceFiles(
+				ctx, []string{root}, nil, nil, shouldRespectGitignore(nil), fileCount,
+			)
+			if err != nil || selectedTruncated || len(selected) != fileCount {
+				b.Fatalf("file selection: count=%d truncated=%t err=%v", len(selected), selectedTruncated, err)
+			}
+		}
+	})
+	b.Run("selected-file-stat-80", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			var totalBytes int64
+			for _, path := range files {
+				info, err := os.Stat(path)
+				if err != nil || !info.Mode().IsRegular() {
+					b.Fatalf("stat selected source %q: %v", path, err)
+				}
+				totalBytes += info.Size()
+			}
+			if totalBytes <= 0 || totalBytes > limits.MaxAggregateBytes {
+				b.Fatalf("unexpected aggregate source bytes %d", totalBytes)
+			}
+		}
+	})
+	b.Run("authorized-preflight-80", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			nextRoots, nextFiles, nextTruncated, nextFailed := h.collectSourceRequestFiles(
+				ctx, "source_query", []string{root}, nil, nil, nil, fileCount, limits,
+			)
+			if nextFailed != nil || len(nextRoots) != 1 || len(nextFiles) != fileCount || nextTruncated {
+				b.Fatalf("preflight roots=%d files=%d truncated=%t failed=%+v", len(nextRoots), len(nextFiles), nextTruncated, nextFailed)
+			}
+		}
+	})
+	b.Run("bounded-fingerprint-80-serial", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			for _, path := range files {
+				fingerprint, err := filesystem.FingerprintRegularFilePathBounded(ctx, path, limits.MaxFileBytes)
+				if err != nil || fingerprint == "" {
+					b.Fatalf("fingerprint %s: %v", path, err)
+				}
+			}
+		}
+	})
+	b.Run("warm-query-80", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			toolError, output, err := h.SourceQuery(ctx, nil, input)
+			if err != nil || toolError != nil || output.Index != seed.Index || output.Search == nil || len(output.Search.Matches) != 1 {
+				b.Fatalf("warm query toolError=%+v err=%v output=%+v", toolError, err, output)
+			}
+		}
+	})
+}
+
+// BenchmarkSourceQuerySelectionTraversalStages distinguishes traversal and
+// bounded-result retention using identical flat/nested directory fixtures.
+// The raw filepath.WalkDir baseline does NOT authorize paths and must never
+// replace the security-aware walk in a real tool.
+func BenchmarkSourceQuerySelectionTraversalStages(b *testing.B) {
+	for _, fixture := range []struct {
+		name   string
+		count  int
+		nested bool
+	}{
+		{name: "flat80", count: 80},
+		{name: "nested80", count: 80, nested: true},
+		{name: "flat256", count: 256},
+		{name: "nested256", count: 256, nested: true},
+	} {
+		b.Run(fixture.name, func(b *testing.B) {
+			root := b.TempDir()
+			for i := 0; i < fixture.count; i++ {
+				dir := root
+				if fixture.nested {
+					dir = filepath.Join(root, fmt.Sprintf("pkg%02d", i%8))
+					if err := os.MkdirAll(dir, 0o700); err != nil {
+						b.Fatal(err)
+					}
+				}
+				if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("Item%03d.java", i)),
+					[]byte("package bench; public class Item {}\n"), 0o600); err != nil {
+					b.Fatal(err)
+				}
+			}
+			h := NewHandler([]string{root})
+			ctx := context.Background()
+			roots := h.ResolvedAllowedDirs()
+			maximum := min(fixture.count, 80)
+			b.Run("raw-enumeration-diagnostic-only", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					count := 0
+					err := filepath.WalkDir(root, func(_ string, entry fs.DirEntry, err error) error {
+						if err != nil {
+							return err
+						}
+						if !entry.IsDir() {
+							count++
+						}
+						return nil
+					})
+					if err != nil || count != fixture.count {
+						b.Fatalf("raw enumeration: count=%d, error=%v", count, err)
+					}
+				}
+			})
+			b.Run("secure-walk", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					count := 0
+					err := filesystem.Walk(ctx, root, filesystem.WalkOptions{
+						ResolvedAllowedDirs: roots,
+					}, func(entry filesystem.Entry) (filesystem.WalkAction, error) {
+						if !entry.DirEntry.IsDir() {
+							count++
+						}
+						return filesystem.WalkContinue, nil
+					})
+					if err != nil || count != fixture.count {
+						b.Fatalf("secure walk: count=%d, error=%v", count, err)
+					}
+				}
+			})
+			b.Run("bounded-selection", func(b *testing.B) {
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					files, truncated, err := h.collectBoundedSourceFiles(
+						ctx, []string{root}, nil, nil, false, maximum,
+					)
+					if err != nil || len(files) != maximum || truncated != (fixture.count > maximum) {
+						b.Fatalf("selection: files=%d, truncated=%t, error=%v", len(files), truncated, err)
+					}
+				}
+			})
+		})
+	}
+}
+
+// BenchmarkSourceQuerySelectionLayouts compares secure file selection across
+// flat and nested source trees. Every run traverses the complete authorized
+// scope, even when the caller retains fewer matches than the fixture contains.
+func BenchmarkSourceQuerySelectionLayouts(b *testing.B) {
+	for _, fileCount := range []int{1, 16, 80, 256} {
+		for _, nested := range []bool{false, true} {
+			layout := "flat"
+			if nested {
+				layout = "nested"
+			}
+			b.Run(fmt.Sprintf("%s/%d", layout, fileCount), func(b *testing.B) {
+				root := b.TempDir()
+				paths := make([]string, 0, fileCount)
+				for index := 0; index < fileCount; index++ {
+					dir := root
+					if nested {
+						dir = filepath.Join(root, fmt.Sprintf("pkg%02d", index%8))
+						if err := os.MkdirAll(dir, 0o700); err != nil {
+							b.Fatal(err)
+						}
+					}
+					path := filepath.Join(dir, fmt.Sprintf("Item%03d.java", index))
+					if err := os.WriteFile(path, []byte("package bench; public class Item {}\n"), 0o600); err != nil {
+						b.Fatal(err)
+					}
+					paths = append(paths, path)
+				}
+				sort.Strings(paths)
+				maxFiles := min(fileCount, 80)
+				h := NewHandler([]string{root})
+				ctx := context.Background()
+				checkSelection := func(b *testing.B, requested []string, expected []string, wantTruncated bool, maximum int) {
+					b.Helper()
+					selected, truncated, err := h.collectBoundedSourceFiles(ctx, requested, nil, nil, false, maximum)
+					if err != nil || truncated != wantTruncated || !reflect.DeepEqual(selected, expected) {
+						b.Fatalf("file selection: got %d selected, truncated=%t, err=%v", len(selected), truncated, err)
+					}
+				}
+				b.Run("directory", func(b *testing.B) {
+					b.ReportAllocs()
+					b.ResetTimer()
+					for iteration := 0; iteration < b.N; iteration++ {
+						checkSelection(b, []string{root}, paths[:maxFiles], fileCount > maxFiles, maxFiles)
+					}
+				})
+				b.Run("explicit-file", func(b *testing.B) {
+					b.ReportAllocs()
+					b.ResetTimer()
+					for iteration := 0; iteration < b.N; iteration++ {
+						checkSelection(b, paths[:1], paths[:1], false, 1)
+					}
+				})
+			})
+		}
+	}
+}
+
+// BenchmarkSourceQuerySingleFileFingerprintAttribution isolates immutable
+// analyzer-configuration hashing from a full warm single-file request.
+// The sub-benchmark times are independent and must not be added together.
+func BenchmarkSourceQuerySingleFileFingerprintAttribution(b *testing.B) {
+	root := b.TempDir()
+	path := filepath.Join(root, "sample.go")
+	if err := os.WriteFile(path, []byte("package sample\nfunc Target() {}\n"), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	ctx := context.Background()
+	h := NewHandler([]string{root})
+	limits := h.sourceLimits()
+	registry, err := sourceintelligence.DefaultLanguageRegistry()
+	if err != nil {
+		b.Fatal(err)
+	}
+	fingerprintConfig := sourceintelligence.ProjectIndexAnalysisConfig{
+		MaxFileBytes: limits.MaxFileBytes, MaxDecodedCharacters: h.maxDecodedCharacters(),
+		MaxSymbols: limits.MaxSymbols, MaxSignatureBytes: limits.MaxSignatureBytes,
+		MaxDiagnostics: limits.MaxDiagnostics, MaxDetectorProbes: limits.MaxDetectorProbes,
+		MaxNesting: limits.MaxNesting, MaxProjectEdges: limits.MaxGraphEdges,
+	}
+	input := SourceQueryInput{
+		Operation: "search", Paths: []string{path}, Query: "Target",
+		Mode: "structural", Match: "exact", Language: "go", Encoding: "utf-8",
+		MaxFiles: 1, MaxResults: 4,
+	}
+	toolError, seed, err := h.SourceQuery(ctx, nil, input)
+	if err != nil || toolError != nil || seed.Search == nil || len(seed.Search.Matches) != 1 {
+		b.Fatalf("seed query: toolError=%+v err=%v output=%+v", toolError, err, seed)
+	}
+	b.Run("analysis-fingerprint", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			fingerprint, err := sourceintelligence.ProjectIndexAnalysisFingerprint(registry, fingerprintConfig)
+			if err != nil || fingerprint == "" {
+				b.Fatalf("analysis fingerprint: %v", err)
+			}
+		}
+	})
+	b.Run("warm-full-query", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			toolError, output, err := h.SourceQuery(ctx, nil, input)
+			if err != nil || toolError != nil || output.Index != seed.Index ||
+				output.Search == nil || len(output.Search.Matches) != 1 {
+				b.Fatalf("warm query: toolError=%+v err=%v output=%+v", toolError, err, output)
+			}
+		}
+	})
+}
 
 func BenchmarkSourceQueryColdWarmAndLookup(b *testing.B) {
 	root := b.TempDir()
@@ -153,6 +464,96 @@ func BenchmarkSourceQueryLargeGenerated(b *testing.B) {
 		if err != nil || (result != nil && result.IsError) || output.Search == nil || len(output.Search.Matches) != 1 {
 			b.Fatalf("large generated result=%+v output=%+v err=%v", result, output, err)
 		}
+	}
+}
+
+// BenchmarkSourceQueryDensePositionVersusSymbol compares selectors through the
+// same warm handler index and secure source-file fingerprint pipeline.
+func BenchmarkSourceQueryDensePositionVersusSymbol(b *testing.B) {
+	for _, count := range []int{512, 5000} {
+		b.Run(fmt.Sprintf("functions-%d", count), func(b *testing.B) {
+			root := b.TempDir()
+			path := filepath.Join(root, "dense.go")
+			var source strings.Builder
+			source.WriteString("package dense\n")
+			for i := 0; i < count; i++ {
+				fmt.Fprintf(&source, "func F%04d(value int) int { return value + %d }\n", i, i)
+			}
+			if err := os.WriteFile(path, []byte(source.String()), 0o600); err != nil {
+				b.Fatal(err)
+			}
+			ctx := context.Background()
+			h := NewHandler([]string{root})
+			searchError, search, err := h.SourceQuery(ctx, nil, SourceQueryInput{
+				Operation: "search", Paths: []string{path}, Query: fmt.Sprintf("F%04d", count-1),
+				Mode: "structural", Match: "exact", Language: "go", Encoding: "utf-8",
+				MaxFiles: 1, MaxResults: 8,
+			})
+			if err != nil || searchError != nil || search.Search == nil || len(search.Search.Matches) != 1 {
+				b.Fatalf("dense seed search error=%v toolError=%+v result=%+v", err, searchError, search)
+			}
+			match := search.Search.Matches[0]
+			symbol := SourceSelectorInput{
+				Kind: "symbol", Path: match.Path, SymbolID: match.SymbolID,
+				SourceFingerprint: match.SourceFingerprint,
+			}
+			position := SourceSelectorInput{
+				Kind: "position", Path: match.Path, SourceFingerprint: match.SourceFingerprint,
+				Position: &SourcePositionInput{Line: match.Range.Start.Line, Column: match.Range.Start.Column},
+			}
+			for _, operation := range []string{"relations", "context"} {
+				b.Run(operation, func(b *testing.B) {
+					var baseline SourceQueryOutput
+					for _, selector := range []struct {
+						name  string
+						value SourceSelectorInput
+					}{{"symbol", symbol}, {"position", position}} {
+						input := SourceQueryInput{
+							Operation: operation, Paths: []string{path}, Language: "go",
+							Encoding: "utf-8", MaxFiles: 1,
+						}
+						if operation == "relations" {
+							input.Relation = "definitions"
+							input.Subject = &selector.value
+							input.MaxResults = 8
+							input.MaxNodes = 16
+							input.MaxEdges = 16
+							input.MaxDepth = 1
+						} else {
+							input.Targets = []SourceSelectorInput{selector.value}
+							input.BodyPolicy = "signatures-only"
+							input.BudgetBytes = 4096
+							input.MaxItems = 8
+							input.MaxDepth = 1
+						}
+						seedError, seed, seedErr := h.SourceQuery(ctx, nil, input)
+						if seedErr != nil || seedError != nil || seed.Index != search.Index ||
+							(operation == "relations" && seed.Relations == nil) ||
+							(operation == "context" && (seed.Context == nil || len(seed.Context.Items) == 0 || seed.Context.UsedBytes > seed.Context.BudgetBytes)) {
+							b.Fatalf("%s %s seed err=%v toolError=%+v output=%+v", operation, selector.name, seedErr, seedError, seed)
+						}
+						if selector.name == "symbol" {
+							baseline = seed
+						} else if !reflect.DeepEqual(seed.Relations, baseline.Relations) ||
+							!reflect.DeepEqual(seed.Context, baseline.Context) || seed.Coverage != baseline.Coverage {
+							b.Fatalf("%s position and symbol selectors returned different results", operation)
+						}
+						b.Run(selector.name, func(b *testing.B) {
+							b.ReportAllocs()
+							b.ResetTimer()
+							for i := 0; i < b.N; i++ {
+								toolError, output, err := h.SourceQuery(ctx, nil, input)
+								if err != nil || toolError != nil || output.Index != seed.Index ||
+									(operation == "relations" && output.Relations == nil) ||
+									(operation == "context" && (output.Context == nil || len(output.Context.Items) == 0 || output.Context.UsedBytes > output.Context.BudgetBytes)) {
+									b.Fatalf("%s %s iteration err=%v toolError=%+v output=%+v", operation, selector.name, err, toolError, output)
+								}
+							}
+						})
+					}
+				})
+			}
+		})
 	}
 }
 

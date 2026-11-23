@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,7 +12,194 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/zoster81/scripthold/internal/config"
+	"github.com/zoster81/scripthold/internal/operation"
+	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
+
+func TestEnforceSourceOutputBudgetExactJSONBoundaries(t *testing.T) {
+	cases := []struct {
+		name   string
+		output SourceSymbolsOutput
+	}{
+		{name: "empty", output: SourceSymbolsOutput{}},
+		{name: "detailed-with-escapes", output: SourceSymbolsOutput{
+			Operation: "outline", CoordinateSystem: sourceCoordinateSystem,
+			FilesConsidered: 1, FilesParsed: 1, SymbolCount: 1, CoverageComplete: true,
+			Files: []SourceSymbolsFile{{Path: "a<>&é.go", Status: "parsed", Encoding: "utf-8", CoverageComplete: true}},
+			Symbols: []sourceintelligence.NormalizedSymbol{{
+				ID: "s-1", Path: "a<>&é.go", Language: "go", Name: "x\xff\u2028😀",
+				Kind: sourceintelligence.SymbolKindFunction, Signature: "a\nb<&>",
+				Modifiers: []string{"public", "static"},
+			}},
+		}},
+		{name: "tree", output: SourceSymbolsOutput{
+			Operation: "outline", Presentation: "tree", CoordinateSystem: sourceCoordinateSystem,
+			FilesConsidered: 1, FilesParsed: 1, SymbolCount: 2, CoverageComplete: true,
+			OutlineFiles: []SourceOutlineFile{{
+				Path: "tree.go", Status: "parsed", CoverageComplete: true,
+				Symbols: []*SourceOutlineNode{{
+					SymbolID: "parent", Name: "Parent", Line: 1, Column: 1,
+					Children: []*SourceOutlineNode{{SymbolID: "child", Name: "Child", Line: 2, Column: 1}},
+				}},
+			}},
+		}},
+		{name: "digest-partial", output: SourceSymbolsOutput{
+			Operation: "digest", CoordinateSystem: sourceCoordinateSystem,
+			FilesConsidered: 2, FilesParsed: 1, FilesSkipped: 1, CoverageComplete: false, Truncated: true,
+			Digests: []SourceDigest{{Path: "file.go", Language: "go", DeclarationCounts: []SourceDeclarationCount{
+				{Kind: sourceintelligence.SymbolKindFunction, Count: 2},
+			}}},
+		}},
+		{name: "show", output: SourceSymbolsOutput{
+			Operation: "show", CoordinateSystem: sourceCoordinateSystem, CoverageComplete: true,
+			Show: &SourceShow{Path: "file.go", Language: "go", Text: "line\n<hello>&😀\r"},
+		}},
+		{name: "concise-outline", output: SourceSymbolsOutput{
+			Operation: "outline", Presentation: "concise",
+			ConciseFiles: []SourceConciseFile{{
+				Path: "file.go", Status: "partial", Functions: []string{"A", "<B>"},
+			}},
+			CoverageComplete: false, Truncated: true, FilesSkipped: 1,
+			ConciseAnalysisComplete: false, ConciseSelectionTruncated: true,
+			ConciseResultsTruncated: true,
+		}},
+		{name: "concise-show", output: SourceSymbolsOutput{
+			Operation: "show", Presentation: "concise", CoverageComplete: false,
+			ConciseShow: &SourceConciseShow{File: "file.go", Representation: "body", Code: "a\nb&c"},
+		}},
+	}
+	large := SourceSymbolsOutput{
+		Operation: "outline", Presentation: "detailed", CoverageComplete: true,
+		FilesConsidered: 1, FilesParsed: 1,
+	}
+	for index := 0; index < 256; index++ {
+		large.Symbols = append(large.Symbols, sourceintelligence.NormalizedSymbol{
+			ID: fmt.Sprintf("id-%04d", index), Name: fmt.Sprintf("item-%04d", index),
+			Path: "large.go", Kind: sourceintelligence.SymbolKindFunction,
+			Signature: strings.Repeat("type<const>&😀", 8),
+		})
+	}
+	large.SymbolCount = len(large.Symbols)
+	cases = append(cases, struct {
+		name   string
+		output SourceSymbolsOutput
+	}{name: "large-detailed", output: large})
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			encoded, err := json.Marshal(tc.output)
+			if err != nil {
+				t.Fatal(err)
+			}
+			direct, directErr := tc.output.MarshalJSON()
+			if directErr != nil {
+				t.Fatalf("direct legacy JSON: %v", directErr)
+			}
+			if string(direct) != string(encoded) {
+				t.Fatalf("direct legacy JSON changed wire response: length=%d, encoded=%d", len(direct), len(encoded))
+			}
+			for _, maximum := range []int64{0, 1, int64(len(encoded)) - 1, int64(len(encoded)), int64(len(encoded)) + 1} {
+				err := enforceSourceOutputBudget(tc.output, maximum)
+				if maximum < int64(len(encoded)) {
+					if operation.KindOf(err) != operation.KindLimit {
+						t.Fatalf("cap=%d, JSON bytes=%d, err=%v: want limit", maximum, len(encoded), err)
+					}
+					message := fmt.Sprintf("source output size %d exceeds limit %d", len(encoded), maximum)
+					if !strings.Contains(err.Error(), message) {
+						t.Fatalf("cap=%d: error changed: %v", maximum, err)
+					}
+				} else if err != nil {
+					t.Fatalf("cap=%d, JSON bytes=%d, unexpected error=%v", maximum, len(encoded), err)
+				}
+				toolResult, completed, completionErr := finishSourceSymbolsOutput(tc.output, maximum)
+				if completionErr != nil {
+					t.Fatalf("cap=%d: unexpected Go error: %v", maximum, completionErr)
+				}
+				if err == nil {
+					if toolResult != nil || !reflect.DeepEqual(completed, tc.output) {
+						t.Fatalf("cap=%d: successful budget result changed: result=%+v output=%+v", maximum, toolResult, completed)
+					}
+				} else if !reflect.DeepEqual(toolResult, errorResultFromError(err)) || !reflect.DeepEqual(completed, SourceSymbolsOutput{}) {
+					t.Fatalf("cap=%d: budget error mapping changed: result=%+v output=%+v", maximum, toolResult, completed)
+				}
+			}
+		})
+	}
+	broken := SourceSymbolsOutput{Operation: "show", Presentation: "concise"}
+	if err := enforceSourceOutputBudget(broken, 1024); operation.KindOf(err) != operation.KindUnknown ||
+		!strings.Contains(err.Error(), "concise show requires an exact source selection") {
+		t.Fatalf("serialization error contract changed: %v", err)
+	}
+}
+
+func TestSourceRequestFileSelectionParity(t *testing.T) {
+	root := t.TempDir()
+	a := filepath.Join(root, "a.go")
+	b := filepath.Join(root, "b.go")
+	c := filepath.Join(root, "c.go")
+	for _, path := range []string{a, b, c} {
+		if err := os.WriteFile(path, []byte("abc"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := NewHandler([]string{root})
+	outside := t.TempDir()
+	tests := []struct {
+		name, operation string
+		paths           []string
+		maxFiles        int
+		maxFileBytes    int64
+		maxAggregate    int64
+		wantFiles       []string
+		wantTruncated   bool
+		wantError       string
+	}{
+		{name: "sorted bounded symbols", operation: "source_symbols", paths: []string{root}, maxFiles: 2, maxFileBytes: 10, maxAggregate: 20, wantFiles: []string{a, b}, wantTruncated: true},
+		{name: "sorted bounded query", operation: "source_query", paths: []string{root}, maxFiles: 2, maxFileBytes: 10, maxAggregate: 20, wantFiles: []string{a, b}, wantTruncated: true},
+		{name: "aggregate symbols", operation: "source_symbols", paths: []string{root}, maxFiles: 3, maxFileBytes: 10, maxAggregate: 5, wantError: ErrCodeLimit},
+		{name: "aggregate query", operation: "source_query", paths: []string{root}, maxFiles: 3, maxFileBytes: 10, maxAggregate: 5, wantError: ErrCodeLimit},
+		{name: "oversized files excluded from aggregate", operation: "source_query", paths: []string{root}, maxFiles: 3, maxFileBytes: 2, maxAggregate: 1, wantFiles: []string{a, b, c}},
+		{name: "missing symbols root", operation: "source_symbols", paths: []string{filepath.Join(root, "missing.go")}, maxFiles: 3, maxFileBytes: 10, maxAggregate: 20, wantError: ErrCodeNotFound},
+		{name: "missing query root", operation: "source_query", paths: []string{filepath.Join(root, "missing.go")}, maxFiles: 3, maxFileBytes: 10, maxAggregate: 20, wantError: ErrCodeNotFound},
+		{name: "denied query root", operation: "source_query", paths: []string{outside}, maxFiles: 3, maxFileBytes: 10, maxAggregate: 20, wantError: ErrCodeAccessDenied},
+		{name: "invalid maximum", operation: "source_symbols", paths: []string{root}, maxFiles: 0, maxFileBytes: 10, maxAggregate: 20, wantError: ErrCodeInvalidInput},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			limits := h.sourceLimits()
+			limits.MaxFileBytes = tc.maxFileBytes
+			limits.MaxAggregateBytes = tc.maxAggregate
+			roots, files, truncated, failed := h.collectSourceRequestFiles(
+				context.Background(), tc.operation, tc.paths, nil, nil, nil, tc.maxFiles, limits,
+			)
+			if tc.wantError != "" {
+				if failed == nil || !failed.IsError || failed.Meta[ErrorCodeMetaKey] != tc.wantError {
+					t.Fatalf("error result=%+v, want %s", failed, tc.wantError)
+				}
+				if roots != nil || files != nil || truncated {
+					t.Fatalf("failed selection leaked state roots=%v files=%v truncated=%t", roots, files, truncated)
+				}
+				return
+			}
+			if failed != nil {
+				t.Fatalf("unexpected selection error: %+v", failed)
+			}
+			// Validation resolves platform-specific path aliases (Windows 8.3
+			// names and macOS /var -> /private/var) before file collection.
+			wantFiles := make([]string, len(tc.wantFiles))
+			for i, path := range tc.wantFiles {
+				validated := h.ValidatePath(path)
+				if !validated.Ok() {
+					t.Fatalf("fixture path %q was not authorized: %+v", path, validated.Result)
+				}
+				wantFiles[i] = validated.Path
+			}
+			if len(roots) != 1 || !reflect.DeepEqual(files, wantFiles) || truncated != tc.wantTruncated {
+				t.Fatalf("selection roots=%v files=%v truncated=%t; want files=%v truncated=%t", roots, files, truncated, wantFiles, tc.wantTruncated)
+			}
+		})
+	}
+}
 
 // Complete source-derived header inventory; the connected server may run older
 // C macro parsing and must not be conflated with development handler results.
@@ -1331,5 +1519,184 @@ func TestSourceFileSelectionKeepsLexicographicPrefixWithoutRetainingAllPaths(t *
 		if !reflect.DeepEqual(selected, want[:expectedCount]) || truncated != (len(want) > limit) {
 			t.Fatalf("limit %d: selected=%v truncated=%t; want=%v truncated=%t", limit, selected, truncated, want[:expectedCount], len(want) > limit)
 		}
+	}
+}
+
+func TestBuildSourceSymbolsOutputPreservesBoundedSelectionAndJSON(t *testing.T) {
+	a := sourceintelligence.NormalizedSymbol{ID: "a", Path: "a.go", Name: "Alpha", Kind: sourceintelligence.SymbolKindFunction}
+	b := sourceintelligence.NormalizedSymbol{ID: "b", Path: "a.go", Name: "Beta", Kind: sourceintelligence.SymbolKindFunction}
+	c := sourceintelligence.NormalizedSymbol{ID: "c", Path: "c.go", Name: "Gamma", Kind: sourceintelligence.SymbolKindFunction}
+	d := sourceintelligence.NormalizedSymbol{ID: "d", Path: "c.go", Name: "Delta", Kind: sourceintelligence.SymbolKindMethod}
+	files := []SourceSymbolsFile{
+		{Path: "a.go", Status: "parsed", CoverageComplete: true},
+		{Path: "b.txt", Status: "skipped", ErrorCode: ErrCodeUnsupported},
+		{Path: "c.go", Status: "parsed", CoverageComplete: true},
+	}
+	analyses := []sourceFileAnalysis{
+		{file: files[0], analysis: sourceintelligence.AnalyzerResult{Analysis: sourceintelligence.AnalysisResult{Symbols: []sourceintelligence.NormalizedSymbol{a, b}}}},
+		{file: files[1]},
+		{file: files[2], analysis: sourceintelligence.AnalyzerResult{Analysis: sourceintelligence.AnalysisResult{Symbols: []sourceintelligence.NormalizedSymbol{c, d}}}},
+	}
+	for _, tc := range []struct {
+		name      string
+		operation string
+		kinds     []string
+		query     string
+		max       int
+		want      []sourceintelligence.NormalizedSymbol
+		truncated bool
+	}{
+		{name: "all", operation: "outline", max: 4, want: []sourceintelligence.NormalizedSymbol{a, b, c, d}},
+		{name: "extra-capacity-request", operation: "outline", max: 128, want: []sourceintelligence.NormalizedSymbol{a, b, c, d}},
+		{name: "bounded", operation: "outline", max: 2, want: []sourceintelligence.NormalizedSymbol{a, b}, truncated: true},
+		{name: "one", operation: "outline", max: 1, want: []sourceintelligence.NormalizedSymbol{a}, truncated: true},
+		{name: "zero", operation: "outline", max: 0, truncated: true},
+		{name: "filtered-method", operation: "outline", max: 2, kinds: []string{"method"}, want: []sourceintelligence.NormalizedSymbol{d}},
+		{name: "filtered-truncated", operation: "outline", max: 2, kinds: []string{"function"}, want: []sourceintelligence.NormalizedSymbol{a, b}, truncated: true},
+		{name: "filtered-empty", operation: "outline", max: 128, kinds: []string{"interface"}},
+		{name: "find-exact", operation: "find", max: 2, query: "Delta", want: []sourceintelligence.NormalizedSymbol{d}},
+		{name: "find-empty", operation: "find", max: 2, query: "Absent"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := SourceSymbolsInput{Operation: tc.operation, Kinds: tc.kinds, Query: tc.query, Match: "exact"}
+			got := buildSourceSymbolsOutput(tc.operation, input, len(files), false, analyses, tc.max)
+			want := SourceSymbolsOutput{
+				Operation: tc.operation, CoordinateSystem: sourceCoordinateSystem,
+				Files: files, Symbols: tc.want,
+				FilesConsidered: len(files), FilesParsed: 2, FilesSkipped: 1,
+				SymbolCount: len(tc.want), CoverageComplete: false, Truncated: tc.truncated,
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("output changed: got=%+v want=%+v", got, want)
+			}
+			gotJSON, gotErr := json.Marshal(got)
+			wantJSON, wantErr := json.Marshal(want)
+			if gotErr != nil || wantErr != nil || string(gotJSON) != string(wantJSON) {
+				t.Fatalf("public JSON changed: got=%s (%v), want=%s (%v)", gotJSON, gotErr, wantJSON, wantErr)
+			}
+		})
+	}
+}
+
+func TestPresentSourceOutlineFlatRootsMatchCompactAcrossFiles(t *testing.T) {
+	files := []SourceSymbolsFile{
+		{Path: "first.go", Status: "parsed", CoverageComplete: true},
+		{Path: "second.go", Status: "parsed", CoverageComplete: true},
+	}
+	for _, count := range []int{0, 1, 64, 1024} {
+		t.Run(fmt.Sprintf("symbols-%d", count), func(t *testing.T) {
+			symbols := make([]sourceintelligence.NormalizedSymbol, count)
+			for index := range symbols {
+				path := "skipped.go"
+				switch index % 3 {
+				case 0:
+					path = "first.go"
+				case 1:
+					path = "second.go"
+				}
+				symbols[index] = sourceintelligence.NormalizedSymbol{
+					Path: path, ID: fmt.Sprintf("flat-%04d", index),
+					Name:          fmt.Sprintf("Flat%04d", index),
+					QualifiedName: fmt.Sprintf("pkg.Flat%04d", index),
+					Kind:          sourceintelligence.SymbolKindFunction,
+					DeclarationRange: sourceintelligence.Range{
+						Start: sourceintelligence.Position{Line: index + 1, Column: 1},
+					},
+				}
+			}
+			tree := presentSourceOutline(files, symbols, "tree")
+			compact := presentSourceOutline(files, symbols, "compact")
+			if !reflect.DeepEqual(tree, compact) {
+				t.Fatalf("flat-root tree diverged from compact: tree=%+v compact=%+v", tree, compact)
+			}
+			treeJSON, err := json.Marshal(tree)
+			if err != nil {
+				t.Fatal(err)
+			}
+			compactJSON, err := json.Marshal(compact)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(treeJSON) != string(compactJSON) {
+				t.Fatalf("flat-root public JSON differs: tree=%s compact=%s", treeJSON, compactJSON)
+			}
+			for index := range tree {
+				for _, node := range tree[index].Symbols {
+					if node.ParentID != "" || len(node.Children) != 0 {
+						t.Fatalf("flat-root symbol unexpectedly has parent/children: %+v", node)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestPresentSourceOutlinePreservesCompactOrderAndTreeOwnership(t *testing.T) {
+	file := func(path string) SourceSymbolsFile {
+		return SourceSymbolsFile{Path: path, Status: "parsed", CoverageComplete: true}
+	}
+	symbol := func(path, id, parent string, line int) sourceintelligence.NormalizedSymbol {
+		return sourceintelligence.NormalizedSymbol{
+			Path: path, ID: id, Name: id, QualifiedName: id, ParentID: parent,
+			Kind: sourceintelligence.SymbolKindFunction,
+			DeclarationRange: sourceintelligence.Range{
+				Start: sourceintelligence.Position{Line: line, Column: 1},
+			},
+		}
+	}
+	node := func(id, parent string, line int) *SourceOutlineNode {
+		return &SourceOutlineNode{
+			SymbolID: id, Name: id, QualifiedName: id, ParentID: parent,
+			Kind: sourceintelligence.SymbolKindFunction, Line: line, Column: 1,
+		}
+	}
+	files := []SourceSymbolsFile{file("alpha.go"), file("beta.go")}
+	symbols := []sourceintelligence.NormalizedSymbol{
+		symbol("alpha.go", "alpha-root", "", 1),
+		symbol("alpha.go", "alpha-child", "alpha-root", 2),
+		symbol("alpha.go", "orphan", "missing", 3),
+		symbol("beta.go", "cross-file", "alpha-root", 4),
+		symbol("not-selected.go", "skipped", "", 5),
+		symbol("beta.go", "beta-root", "", 6),
+		symbol("beta.go", "beta-child", "beta-root", 7),
+	}
+
+	for _, tc := range []struct {
+		presentation string
+		want         []SourceOutlineFile
+	}{
+		{
+			presentation: "compact",
+			want: []SourceOutlineFile{
+				{Path: "alpha.go", Status: "parsed", CoverageComplete: true, Symbols: []*SourceOutlineNode{
+					node("alpha-root", "", 1), node("alpha-child", "alpha-root", 2), node("orphan", "missing", 3),
+				}},
+				{Path: "beta.go", Status: "parsed", CoverageComplete: true, Symbols: []*SourceOutlineNode{
+					node("cross-file", "alpha-root", 4), node("beta-root", "", 6), node("beta-child", "beta-root", 7),
+				}},
+			},
+		},
+		{
+			presentation: "tree",
+			want: []SourceOutlineFile{
+				{Path: "alpha.go", Status: "parsed", CoverageComplete: true, Symbols: []*SourceOutlineNode{
+					{SymbolID: "alpha-root", Name: "alpha-root", QualifiedName: "alpha-root", Kind: sourceintelligence.SymbolKindFunction, Line: 1, Column: 1,
+						Children: []*SourceOutlineNode{node("alpha-child", "", 2)}},
+					node("orphan", "missing", 3),
+				}},
+				{Path: "beta.go", Status: "parsed", CoverageComplete: true, Symbols: []*SourceOutlineNode{
+					node("cross-file", "alpha-root", 4),
+					{SymbolID: "beta-root", Name: "beta-root", QualifiedName: "beta-root", Kind: sourceintelligence.SymbolKindFunction, Line: 6, Column: 1,
+						Children: []*SourceOutlineNode{node("beta-child", "", 7)}},
+				}},
+			},
+		},
+	} {
+		t.Run(tc.presentation, func(t *testing.T) {
+			got := presentSourceOutline(files, symbols, tc.presentation)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("projection mismatch: got=%+v want=%+v", got, tc.want)
+			}
+		})
 	}
 }

@@ -730,6 +730,136 @@ func TestSourceSymbolsRealCorpusCSharpIgnoreOverloads(t *testing.T) {
 		found.FilesConsidered, found.SymbolCount, len(found.Files), len(findJSON), totalShowBytes)
 }
 
+// TestSourceIntelligenceRepositoryGoSourceNavigationParity uses actual checked-in
+// Scripthold source as a portable maintenance oracle. Unlike opt-in third-party
+// corpora, it runs on every clone, without executing or modifying that source.
+// It proves only this selected source and navigation task, not general Go coverage.
+func TestSourceIntelligenceRepositoryGoSourceNavigationParity(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", "..", "internal", "sourceintelligence"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, "project_query.go")
+	source, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const declaration = "func projectSearchTextMatches(value, query string, mode ProjectSearchMatchMode) bool {"
+	const name = "projectSearchTextMatches"
+	text := string(source)
+	occurrences := strings.Count(text, declaration)
+	if occurrences != 1 {
+		t.Fatalf("repository source oracle changed: declaration occurrences=%d", occurrences)
+	}
+	wantLine := strings.Count(text[:strings.Index(text, declaration)], "\n") + 1
+	h := NewHandler([]string{root})
+	ctx := context.Background()
+	assertJSONBudget := func(value any) {
+		t.Helper()
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		measured, err := sourceEncodedJSONBytes(value)
+		if err != nil || measured != int64(len(encoded)) {
+			t.Fatalf("wire JSON size differs: encoded=%d measured=%d err=%v", len(encoded), measured, err)
+		}
+	}
+	callSymbols := func(input SourceSymbolsInput) SourceSymbolsOutput {
+		t.Helper()
+		result, out, err := h.SourceSymbols(ctx, nil, input)
+		if err != nil || result != nil {
+			t.Fatalf("repository source_symbols %s failed: result=%+v err=%v", input.Operation, result, err)
+		}
+		assertJSONBudget(out)
+		return out
+	}
+	outlineInput := SourceSymbolsInput{
+		Operation: "outline", Presentation: "detailed",
+		Paths: []string{path}, Language: "go", Encoding: "utf-8",
+		MaxFiles: 1, MaxSymbols: 512,
+	}
+	detailed := callSymbols(outlineInput)
+	if len(detailed.Files) != 1 || detailed.FilesParsed != 1 || !detailed.CoverageComplete ||
+		detailed.Truncated || len(detailed.Symbols) == 0 || detailed.Files[0].SourceFingerprint == "" {
+		t.Fatalf("repository source outline incomplete: files=%d parsed=%d symbols=%d coverage=%t truncated=%t",
+			len(detailed.Files), detailed.FilesParsed, len(detailed.Symbols), detailed.CoverageComplete, detailed.Truncated)
+	}
+	var selectedID string
+	for _, symbol := range detailed.Symbols {
+		if symbol.Name == name {
+			if symbol.NameRange.Start.Line != wantLine || string(symbol.Kind) != "function" || selectedID != "" {
+				t.Fatalf("repository source oracle no longer identifies target: %+v", symbol)
+			}
+			selectedID = symbol.ID
+		}
+	}
+	if selectedID == "" {
+		t.Fatal("repository source target declaration missing from detailed outline")
+	}
+	outlineInput.Presentation = "tree"
+	tree := callSymbols(outlineInput)
+	if tree.SymbolCount != detailed.SymbolCount || len(tree.OutlineFiles) != 1 ||
+		tree.OutlineFiles[0].SourceFingerprint != detailed.Files[0].SourceFingerprint {
+		t.Fatal("tree projection lost repository source symbols or file identity")
+	}
+	found := callSymbols(SourceSymbolsInput{
+		Operation: "find", Paths: []string{path}, Language: "go", Encoding: "utf-8",
+		Query: name, Match: "exact", MaxFiles: 1, MaxSymbols: 8, FileDetails: "relevant",
+	})
+	if len(found.Symbols) != 1 || found.Symbols[0].ID != selectedID ||
+		len(found.Files) != 1 || found.Files[0].SourceFingerprint != detailed.Files[0].SourceFingerprint {
+		t.Fatalf("repository source find lost exact identity: symbols=%d files=%d", len(found.Symbols), len(found.Files))
+	}
+	shown := callSymbols(SourceSymbolsInput{
+		Operation: "show", Path: path, SymbolID: selectedID,
+		SourceFingerprint: detailed.Files[0].SourceFingerprint,
+		Language:          "go", Encoding: "utf-8", MaxBytes: 8192,
+	})
+	if shown.Show == nil || !strings.Contains(shown.Show.Text, "strings.HasPrefix(value, query)") {
+		t.Fatal("fingerprint-bound repository source excerpt lost the target implementation")
+	}
+	queryInput := SourceQueryInput{
+		Operation: "search", Paths: []string{path}, Language: "go", Encoding: "utf-8",
+		Query: name, Match: "exact", Mode: "structural", MaxFiles: 1, MaxResults: 8,
+	}
+	queryError, searched, err := h.SourceQuery(ctx, nil, queryInput)
+	if err != nil || queryError != nil || searched.Search == nil ||
+		searched.Coverage.FilesParsed != 1 || searched.Coverage.ResultsTruncated ||
+		len(searched.Search.Matches) != 1 {
+		t.Fatalf("repository structural search incomplete: result=%+v err=%v", queryError, err)
+	}
+	assertJSONBudget(searched)
+	match := searched.Search.Matches[0]
+	if match.Name != name || match.SymbolID != selectedID ||
+		match.SourceFingerprint != detailed.Files[0].SourceFingerprint || match.Range.Start.Line != wantLine {
+		t.Fatalf("repository search changed cross-tool identity or location: %+v", match)
+	}
+	contextInput := SourceQueryInput{
+		Operation: "context", Paths: []string{path}, Language: "go",
+		Targets: []SourceSelectorInput{{
+			Kind: "symbol", Path: match.Path, SymbolID: match.SymbolID,
+			SourceFingerprint: match.SourceFingerprint,
+		}},
+		BudgetBytes: 8192, MaxItems: 4, BodyPolicy: "prefer",
+	}
+	contextError, contextOutput, err := h.SourceQuery(ctx, nil, contextInput)
+	if err != nil || contextError != nil || contextOutput.Context == nil ||
+		len(contextOutput.Context.Items) == 0 {
+		t.Fatalf("repository source context missing: result=%+v err=%v", contextError, err)
+	}
+	assertJSONBudget(contextOutput)
+	item := contextOutput.Context.Items[0]
+	if item.Entity.SymbolID != match.SymbolID ||
+		!strings.Contains(item.Text, "strings.HasPrefix(value, query)") {
+		t.Fatalf("repository source context changed target body: %+v", item.Entity)
+	}
+	repeatError, repeated, err := h.SourceQuery(ctx, nil, queryInput)
+	if err != nil || repeatError != nil || !reflect.DeepEqual(searched, repeated) {
+		t.Fatalf("unchanged repository source search was not deterministic: result=%+v err=%v", repeatError, err)
+	}
+}
+
 func BenchmarkSourceQueryRealCorpusWarm(b *testing.B) {
 	fullInput := realSourceCorpusInput(b)
 	h := NewHandler(fullInput.Paths)

@@ -126,7 +126,7 @@ function assertNonpublishingUbuntu26BuildProbe(yaml) {
   assert.match(yaml, /^on:\r?\n  pull_request:\r?\n    paths:\r?\n      - '\.github\/workflows\/ubuntu26-goreleaser-build-probe\.yml'\r?\n  workflow_dispatch:\r?$/m);
   assert.match(yaml, /^permissions:\r?\n  contents: read\r?$/m);
   assert.match(yaml, /^    runs-on: ubuntu-26\.04\r?$/m);
-  assert.match(yaml, /^          version: 'v2\.18\.1'\r?$/m);
+  assert.match(yaml, /^          version: 'v2\.20\.3'\r?$/m);
   assert.match(yaml, /^          args: build --clean --skip=validate\r?$/m);
   assert.match(yaml, /df -hPT/);
   assert.match(yaml, /findmnt -T/);
@@ -142,7 +142,7 @@ test('Ubuntu 26 GoReleaser rehearsal only builds locally on hosted runner', () =
     ['    runs-on: ubuntu-26.04', '    runs-on: ubuntu-latest'],
     ['  contents: read', '  contents: write'],
     ['          args: build --clean --skip=validate', '          args: release --clean'],
-    ["          version: 'v2.18.1'", "          version: 'latest'"],
+    ["          version: 'v2.20.3'", "          version: 'latest'"],
   ]) {
     assert.ok(yaml.includes(expected));
     assert.throws(() => assertNonpublishingUbuntu26BuildProbe(
@@ -166,7 +166,7 @@ test('manual Ubuntu 26 complete normal rehearsal cannot publish or trust a local
     assert.equal(text.split('persist-credentials: false').length - 1, 2);
     assert.doesNotMatch(text, /persist-credentials: true/);
     assert.match(text, /workdir: source/);
-    assert.match(text, /^          version: 'v2\.18\.1'\r?$/m);
+    assert.match(text, /^          version: 'v2\.20\.3'\r?$/m);
     assert.match(text, /^          args: release --clean --skip=publish,announce\r?$/m);
     assert.match(text, /node \.\.\/verifier\/scripts\/release-normal-rehearsal\.js/);
     assert.doesNotMatch(text, /contents: write|packages: write|id-token: write|attestations: write/);
@@ -178,7 +178,7 @@ test('manual Ubuntu 26 complete normal rehearsal cannot publish or trust a local
     ['release --clean --skip=publish,announce', 'release --clean'],
     ['persist-credentials: false', 'persist-credentials: true'],
     ['test "${GITHUB_REF}" = refs/heads/main', 'test "${GITHUB_REF}" = refs/tags/main'],
-    ["version: 'v2.18.1'", "version: 'latest'"],
+    ["version: 'v2.20.3'", "version: 'latest'"],
   ]) {
     assert.ok(yaml.includes(safe));
     assert.throws(() => assertSafe(yaml.replace(safe, unsafe)));

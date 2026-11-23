@@ -135,17 +135,11 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 
 	if conciseOutline {
 		output := buildSourceConciseOutline(analyses, input.Paths, input.Owner, input.Kinds, selectionTruncated, maxSymbols)
-		if outputErr := enforceSourceOutputBudget(output, limits.MaxOutputBytes); outputErr != nil {
-			return errorResultFromError(outputErr), SourceSymbolsOutput{}, nil
-		}
-		return nil, output, nil
+		return finishSourceSymbolsOutput(output, limits.MaxOutputBytes)
 	}
 	if operationName == "digest" && input.Presentation == "concise" {
 		output := buildSourceConciseDigest(analyses, input.Paths, selectionTruncated)
-		if outputErr := enforceSourceOutputBudget(output, limits.MaxOutputBytes); outputErr != nil {
-			return errorResultFromError(outputErr), SourceSymbolsOutput{}, nil
-		}
-		return nil, output, nil
+		return finishSourceSymbolsOutput(output, limits.MaxOutputBytes)
 	}
 
 	output := buildSourceSymbolsOutput(operationName, input, len(files), selectionTruncated, analyses, maxSymbols)
@@ -161,10 +155,7 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 		output.ConciseSelectionTruncated = selectionTruncated
 		output.ConciseResultsTruncated = output.Truncated && !selectionTruncated
 		output.Presentation = "concise"
-		if outputErr := enforceSourceOutputBudget(output, limits.MaxOutputBytes); outputErr != nil {
-			return errorResultFromError(outputErr), SourceSymbolsOutput{}, nil
-		}
-		return nil, output, nil
+		return finishSourceSymbolsOutput(output, limits.MaxOutputBytes)
 	}
 	if operationName == "digest" && input.Presentation == "compact" {
 		output.OverviewFiles = presentSourceDigestOverview(analyses, output.Digests)
@@ -182,8 +173,14 @@ func (h *Handler) SourceSymbols(ctx context.Context, _ *mcp.CallToolRequest, inp
 		output.Files = nil
 		output.Symbols = nil
 	}
-	if outputErr := enforceSourceOutputBudget(output, limits.MaxOutputBytes); outputErr != nil {
-		return errorResultFromError(outputErr), SourceSymbolsOutput{}, nil
+	return finishSourceSymbolsOutput(output, limits.MaxOutputBytes)
+}
+
+// finishSourceSymbolsOutput applies the exact serialized output limit to every
+// successful source_symbols response, including show and concise projections.
+func finishSourceSymbolsOutput(output SourceSymbolsOutput, maxBytes int64) (*mcp.CallToolResult, SourceSymbolsOutput, error) {
+	if err := enforceSourceOutputBudget(output, maxBytes); err != nil {
+		return errorResultFromError(err), SourceSymbolsOutput{}, nil
 	}
 	return nil, output, nil
 }
@@ -284,10 +281,7 @@ func (h *Handler) sourceSymbolsShow(ctx context.Context, input SourceSymbolsInpu
 				Complete: true, Code: text,
 			}
 		}
-		if outputErr := enforceSourceOutputBudget(output, limits.MaxOutputBytes); outputErr != nil {
-			return errorResultFromError(outputErr), SourceSymbolsOutput{}, nil
-		}
-		return nil, output, nil
+		return finishSourceSymbolsOutput(output, limits.MaxOutputBytes)
 	}
 	return errorResultWithCode(ErrCodeNotFound, "symbolId was not found in the current source"), SourceSymbolsOutput{}, nil
 }

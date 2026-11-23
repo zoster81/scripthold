@@ -3,7 +3,10 @@ package sourceintelligence
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -11,6 +14,154 @@ import (
 
 	"github.com/zoster81/scripthold/internal/operation"
 )
+
+// Keep the lexical generic stripping contract unchanged for plain names,
+// Unicode spelling, invalid UTF-8 and unbalanced brackets.
+func legacyStripBalancedGenericArguments(value string) string {
+	var builder strings.Builder
+	depth := 0
+	for _, char := range value {
+		switch char {
+		case '<':
+			depth++
+		case '>':
+			if depth == 0 {
+				return strings.TrimSpace(value)
+			}
+			depth--
+		default:
+			if depth == 0 {
+				builder.WriteRune(char)
+			}
+		}
+	}
+	if depth != 0 {
+		return strings.TrimSpace(value)
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+func TestStripBalancedGenericArgumentsParity(t *testing.T) {
+	cases := []string{
+		"", "Name", " package.Service.handle ", "a.b_C42", "NUL\x00name",
+		"Niño.方法", " Map<String, List<T>>.get ", "Unclosed<", "TooMany>",
+		"Trailing<Inner<T>", "A<>.b", string([]byte{'a', 0xff, 'b'}),
+	}
+	for _, length := range []int{128, 4096} {
+		prefix := strings.Repeat("a", length)
+		cases = append(cases, prefix, prefix+"<T>", prefix+"é", prefix+string([]byte{0xff}))
+	}
+	for index, input := range cases {
+		if got, want := stripBalancedGenericArguments(input), legacyStripBalancedGenericArguments(input); got != want {
+			t.Fatalf("generic spelling case %d: got %q, want %q", index, got, want)
+		}
+	}
+}
+
+// Reference IDs are stable, length-delimited SHA-256 digests. Preserve the
+// original on-wire identity even for empty, Unicode and unusual positions.
+func TestDeterministicProjectReferenceIDWireParity(t *testing.T) {
+	cases := []ProjectReference{
+		{},
+		{
+			Source: RelationEntity{
+				Path: "project/src/A.java", Language: "java", SymbolID: "id:8",
+				QualifiedName: "package.A.f",
+			},
+			StructuralKind: "call", TargetSpelling: "B.é方法",
+			Range: Range{Start: Position{Line: 12, Column: 7}, End: Position{Line: 12, Column: 19}},
+		},
+		{
+			Source: RelationEntity{
+				Path: "a\x00b", Language: "typescript", QualifiedName: "x",
+			},
+			StructuralKind: "member", TargetSpelling: "some.long.name",
+			Range: Range{Start: Position{Line: -13, Column: 2147483647}, End: Position{Line: 0, Column: -1}},
+		},
+	}
+	for index, reference := range cases {
+		parts := []string{
+			reference.Source.Path, reference.Source.Language, reference.Source.SymbolID,
+			reference.Source.QualifiedName, reference.StructuralKind, reference.TargetSpelling,
+			fmt.Sprintf("%d", reference.Range.Start.Line), fmt.Sprintf("%d", reference.Range.Start.Column),
+			fmt.Sprintf("%d", reference.Range.End.Line), fmt.Sprintf("%d", reference.Range.End.Column),
+		}
+		digest := sha256.New()
+		var length [8]byte
+		for _, part := range parts {
+			binary.BigEndian.PutUint64(length[:], uint64(len(part)))
+			_, _ = digest.Write(length[:])
+			_, _ = digest.Write([]byte(part))
+		}
+		expected := hex.EncodeToString(digest.Sum(nil))
+		if actual := deterministicProjectReferenceID(reference); actual != expected {
+			t.Fatalf("reference ID format case %d: got %s, want %s", index, actual, expected)
+		}
+	}
+}
+
+// BuildProjectModel publishes an immutable model even when the caller later
+// mutates the fact slice and the nested values it supplied.
+func TestBuildProjectModelRetainsInputSymbolOwnership(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join("project", "ownership", "Service.java")
+	facts := projectResolverFacts(t, JavaAnalyzer{}, path, "package demo; public class Service { public void Run() {} }\n")
+	if len(facts.Analysis.Analysis.Symbols) == 0 {
+		t.Fatal("fixture has no symbols")
+	}
+	inputSymbol := &facts.Analysis.Analysis.Symbols[0]
+	inputSymbol.Modifiers = []string{"original"}
+	signature := inputSymbol.DeclarationRange
+	body := inputSymbol.DeclarationRange
+	inputSymbol.SignatureRange = &signature
+	inputSymbol.BodyRange = &body
+	originalName := inputSymbol.Name
+	originalQualified := inputSymbol.QualifiedName
+	originalID := inputSymbol.ID
+
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	records := model.symbolsByFile[projectPathKey(path)]
+	var retained *projectSymbolRecord
+	for index := range records {
+		if records[index].symbol.ID == originalID {
+			retained = &records[index]
+			break
+		}
+	}
+	if retained == nil {
+		t.Fatal("model lost original symbol")
+	}
+	beforeSignature := *retained.symbol.SignatureRange
+	beforeBody := *retained.symbol.BodyRange
+
+	inputSymbol.Name = "Changed"
+	inputSymbol.QualifiedName = "Changed.Qualified"
+	inputSymbol.Modifiers[0] = "changed"
+	inputSymbol.SignatureRange.Start.Line = 999
+	inputSymbol.BodyRange.Start.Line = 998
+	facts.Analysis.Analysis.Symbols[0] = NormalizedSymbol{}
+
+	if retained.symbol.Name != originalName || retained.symbol.QualifiedName != originalQualified ||
+		len(retained.symbol.Modifiers) != 1 || retained.symbol.Modifiers[0] != "original" ||
+		*retained.symbol.SignatureRange != beforeSignature || *retained.symbol.BodyRange != beforeBody {
+		t.Fatalf("caller mutation changed model symbol: %+v", retained.symbol)
+	}
+	result, err := model.StructuralSearch(context.Background(), ProjectSearchOptions{
+		Query: originalName, Match: ProjectSearchExact, MaxResults: 8,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Matches) == 0 {
+		t.Fatal("caller mutation changed structural search results")
+	}
+}
 
 // Quoted and angle-bracket C/C++ includes have different search rules. With no
 // compiler include roots, a sibling file may satisfy "local.h", but cannot be
@@ -485,6 +636,491 @@ func TestProjectPathStemKeyFromCanonicalKeyMatchesLegacy(t *testing.T) {
 		if got := projectPathStemKey(value); got != want {
 			t.Fatalf("stem key for %q = %q, want %q", value, got, want)
 		}
+	}
+}
+
+func TestProjectResolverDenseSourceCandidatesPreserveLinearSelection(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source strings.Builder
+	source.WriteString("package demo;\nclass Base {}\n")
+	for index := 0; index < 64; index++ {
+		source.WriteString("class Child")
+		source.WriteString(fmt.Sprintf("%03d", index))
+		source.WriteString(" extends Base {}\n")
+	}
+	facts := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join("project", "dense", "Child.java"), source.String())
+	if len(facts.Analysis.Relations) != 64 {
+		t.Fatalf("expected 64 structural references, got %d", len(facts.Analysis.Relations))
+	}
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor, ok := registry.Resolve("java")
+	if !ok {
+		t.Fatal("missing java descriptor")
+	}
+	file := model.files[projectPathKey(facts.Path)]
+	if len(model.references) != len(facts.Analysis.Relations) {
+		t.Fatalf("unexpected structural reference count: got %d", len(model.references))
+	}
+	for _, relation := range facts.Analysis.Relations {
+		want := model.resolveRelationSource(file, descriptor, relation, nil)
+		found := false
+		for _, reference := range model.references {
+			if reference.TargetSpelling != relation.Target || !reflect.DeepEqual(reference.Range, relation.Range) {
+				continue
+			}
+			if !reflect.DeepEqual(reference.Source, want) {
+				t.Fatalf("indexed selection changed source for %+v: got %+v, want %+v", relation, reference.Source, want)
+			}
+			found = true
+			break
+		}
+		if !found {
+			t.Fatalf("source relationship was lost: %+v", relation)
+		}
+	}
+}
+
+func TestProjectResolverSameFileCandidatesPreserveGlobalIndexParity(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor, ok := registry.Resolve("java")
+	if !ok {
+		t.Fatal("java descriptor is unavailable")
+	}
+	var denseSource strings.Builder
+	denseSource.WriteString("package demo;\nclass Base {}\n")
+	for index := 0; index < 64; index++ {
+		fmt.Fprintf(&denseSource, "class Child%03d extends Base {}\n", index)
+	}
+	dense := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join("project", "dense", "Local.java"), denseSource.String())
+	sparse := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join("project", "sparse", "Local.java"), "package demo; class Base {}\nclass Child extends Base {}\n")
+	facts := []ProjectFileFacts{dense, sparse}
+	// Repeated qualified names force a large global index bucket even when
+	// one local file has only a few symbols.
+	for index := 0; index < 70; index++ {
+		path := filepath.Join("project", "duplicates", fmt.Sprintf("Base%03d.java", index))
+		facts = append(facts, projectResolverFacts(t, JavaAnalyzer{}, path, "package demo; class Base {}\n"))
+	}
+	model, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		path   string
+		parent string
+		target string
+	}{
+		{dense.Path, "demo", "Base"},
+		{dense.Path, "", "Base"},
+		{dense.Path, "", "demo.Base"},
+		{dense.Path, "demo", "Missing"},
+		{dense.Path, "", "Child063"},
+		{sparse.Path, "demo", "Base"},
+		{sparse.Path, "", "Base"},
+		{sparse.Path, "demo", "Missing"},
+	}
+	for _, tc := range cases {
+		file := model.files[projectPathKey(tc.path)]
+		qualified := ""
+		if strings.Contains(tc.target, ".") {
+			qualified = tc.target
+		} else if tc.parent != "" {
+			qualified = tc.parent + "." + tc.target
+		}
+		var want []*projectSymbolRecord
+		records := model.symbolsByFile[file.pathKey]
+		for index := range records {
+			record := &records[index]
+			if record.languageID != descriptor.ID || !isRelationEndpointKind(record.symbol.Kind) {
+				continue
+			}
+			if qualified != "" && record.qualifiedKey != qualified {
+				continue
+			}
+			if qualified == "" && record.nameKey != tc.target {
+				continue
+			}
+			want = append(want, record)
+		}
+		got := model.sameFileCandidates(file, descriptor, tc.parent, tc.target)
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("same-file candidates %q parent=%q target=%q: got=%+v want=%+v", tc.path, tc.parent, tc.target, got, want)
+		}
+	}
+	// One matching global symbol exercises the fast path; three matching
+	// symbols exercise the conservative local fallback on the same dense file.
+	for _, subset := range [][]ProjectFileFacts{{dense}, facts[:3]} {
+		candidateModel, err := BuildProjectModel(context.Background(), registry, subset, projectResolverLimitsForTest())
+		if err != nil {
+			t.Fatal(err)
+		}
+		file := candidateModel.files[projectPathKey(dense.Path)]
+		got := candidateModel.sameFileCandidates(file, descriptor, "demo", "Base")
+		if len(got) != 1 || got[0].symbol.ID != projectSymbolID(t, dense, "demo.Base") {
+			t.Fatalf("global index candidate count %d changed the local result: %+v", len(subset), got)
+		}
+	}
+}
+
+func TestProjectSymbolIDLookupPreservesFirstMatchAndFingerprint(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var source strings.Builder
+	source.WriteString("package demo;\n")
+	for index := 0; index < 80; index++ {
+		fmt.Fprintf(&source, "class C%03d {}\n", index)
+	}
+	first := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join("project", "id", "Source.java"), source.String())
+	second := projectResolverFacts(t, JavaAnalyzer{}, filepath.Join("project", "id", "Other.java"), "package demo; class C000 {}\n")
+	lateID := projectSymbolID(t, first, "demo.C079")
+	for index := range first.Analysis.Analysis.Symbols {
+		switch first.Analysis.Analysis.Symbols[index].QualifiedName {
+		case "demo.C000", "demo.C001":
+			first.Analysis.Analysis.Symbols[index].ID = "duplicate-id"
+		}
+	}
+	for index := range second.Analysis.Analysis.Symbols {
+		if second.Analysis.Analysis.Symbols[index].QualifiedName == "demo.C000" {
+			second.Analysis.Analysis.Symbols[index].ID = "duplicate-id"
+		}
+	}
+	model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{first, second}, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	alias := "project/id/nested/../Source.java"
+	for _, selectedID := range []string{"duplicate-id", lateID, "absent-id"} {
+		selector := ProjectSelector{Kind: ProjectSelectorSymbol, Path: alias, SymbolID: selectedID, SourceFingerprint: first.SourceFingerprint}
+		pathKey := projectPathKey(first.Path)
+		var want projectSymbolRecord
+		found := false
+		for _, record := range model.symbolsByFile[pathKey] {
+			if record.symbol.ID == selectedID {
+				want, found = record, true
+				break
+			}
+		}
+		direct, got := model.contextSymbolByID(pathKey, selectedID)
+		if got != found || (got && !reflect.DeepEqual(direct, want)) {
+			t.Fatalf("context ID %q: got=%+v exists=%v want=%+v exists=%v", selectedID, direct, got, want, found)
+		}
+		query, queryErr := model.resolveProjectSelector(selector)
+		seeds, contextErr := model.contextSeedsForSelector(selector)
+		if !found {
+			if operation.KindOf(queryErr) != operation.KindNotFound || operation.KindOf(contextErr) != operation.KindNotFound {
+				t.Fatalf("missing ID %q: queryErr=%v contextErr=%v", selectedID, queryErr, contextErr)
+			}
+			continue
+		}
+		if queryErr != nil || contextErr != nil || !reflect.DeepEqual(query.entity, want.entity) || len(seeds) != 1 || !reflect.DeepEqual(seeds[0].record, want) {
+			t.Fatalf("symbol ID %q: query=%+v queryErr=%v seeds=%+v contextErr=%v want=%+v", selectedID, query, queryErr, seeds, contextErr, want)
+		}
+	}
+	duplicate, ok := model.contextSymbolByID(projectPathKey(first.Path), "duplicate-id")
+	if !ok || duplicate.symbol.QualifiedName != "demo.C000" {
+		t.Fatalf("first sorted duplicate changed: %+v found=%v", duplicate, ok)
+	}
+	other, ok := model.contextSymbolByID(projectPathKey(second.Path), "duplicate-id")
+	if !ok || other.entity.Path != second.Path {
+		t.Fatalf("symbol ID must be scoped to file: %+v found=%v", other, ok)
+	}
+	stale := ProjectSelector{Kind: ProjectSelectorSymbol, Path: first.Path, SourceFingerprint: strings.Repeat("0", 64), SymbolID: lateID}
+	if _, err := model.resolveProjectSelector(stale); operation.KindOf(err) != operation.KindConflict {
+		t.Fatalf("stale query fingerprint: %v", err)
+	}
+	if _, err := model.contextSeedsForSelector(stale); operation.KindOf(err) != operation.KindConflict {
+		t.Fatalf("stale context fingerprint: %v", err)
+	}
+}
+
+func TestProjectSymbolIDIndexPreservesCompleteContextPlans(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name      string
+		analyzer  SourceAnalyzer
+		path      string
+		header    string
+		baseName  string
+		childName string
+	}{
+		{"java", JavaAnalyzer{}, "project/context/dense/Index.java", "package demo;\n", "demo.Base", "demo.Child079"},
+		{"typescript", TypeScriptAnalyzer{}, "project/context/dense/index.ts", "", "Base", "Child079"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var source strings.Builder
+			source.WriteString(tc.header)
+			source.WriteString("class Base {}\n")
+			for index := 0; index < 80; index++ {
+				fmt.Fprintf(&source, "class Child%03d extends Base {}\n", index)
+			}
+			facts := projectResolverFacts(t, tc.analyzer, tc.path, source.String())
+			model, err := BuildProjectModel(context.Background(), registry, []ProjectFileFacts{facts}, projectResolverLimitsForTest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(model.references) != 80 || len(model.symbolIndicesByFile[projectPathKey(facts.Path)]) == 0 {
+				t.Fatalf("fixture expected 80 type relationships and a dense ID index, got refs=%d ids=%d", len(model.references), len(model.symbolIndicesByFile[projectPathKey(facts.Path)]))
+			}
+			baseID := projectSymbolID(t, facts, tc.baseName)
+			lastID := projectSymbolID(t, facts, tc.childName)
+			selector := func(id string) ProjectSelector {
+				return ProjectSelector{Kind: ProjectSelectorSymbol, Path: facts.Path, SymbolID: id, SourceFingerprint: facts.SourceFingerprint}
+			}
+			position := model.references[len(model.references)-1].Range.Start
+			selectors := []ProjectSelector{
+				selector(baseID), selector(lastID),
+				{Kind: ProjectSelectorPosition, Path: facts.Path, SourceFingerprint: facts.SourceFingerprint, Position: &position},
+				{Kind: ProjectSelectorPath, Path: facts.Path, SourceFingerprint: facts.SourceFingerprint},
+			}
+			// The same immutable facts, evaluated with the legacy scan rather
+			// than the index, must produce exactly the same complete plan.
+			scanned := *model
+			scanned.symbolIndicesByFile = nil
+			options := ProjectContextOptions{BudgetBytes: 1024 * 1024, MaxItems: 96, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+			for _, target := range selectors {
+				indexed, indexedErr := model.PlanContext(context.Background(), []ProjectSelector{target}, options)
+				legacy, legacyErr := scanned.PlanContext(context.Background(), []ProjectSelector{target}, options)
+				if indexedErr != nil || legacyErr != nil || !reflect.DeepEqual(indexed, legacy) {
+					t.Fatalf("context mismatch for %s/%s: indexedErr=%v legacyErr=%v indexed=%+v legacy=%+v", tc.name, target.Kind, indexedErr, legacyErr, indexed, legacy)
+				}
+			}
+		})
+	}
+}
+
+func TestProjectResolverReverseTargetViewParity(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name      string
+		children  int
+		ambiguous bool
+		duplicate bool
+	}{
+		{name: "sparse", children: 16},
+		{name: "dense", children: 64},
+		{name: "ambiguous", children: 64, ambiguous: true},
+		{name: "duplicate-identities", children: 64, duplicate: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			facts := []ProjectFileFacts{projectResolverFacts(t, JavaAnalyzer{}, "project/reverse/Base.java", "package demo; public class Base {}\n")}
+			if tc.ambiguous {
+				facts = append(facts, projectResolverFacts(t, JavaAnalyzer{}, "project/reverse/BaseCopy.java", "package demo; public class Base {}\n"))
+			}
+			for index := 0; index < tc.children; index++ {
+				path := fmt.Sprintf("project/reverse/Child%03d.java", index)
+				text := fmt.Sprintf("package demo; public class Child%03d extends Base {}\n", index)
+				child := projectResolverFacts(t, JavaAnalyzer{}, path, text)
+				if tc.duplicate && index == 0 {
+					relation := child.Analysis.Relations[0]
+					for repeat := 1; repeat < 64; repeat++ {
+						child.Analysis.Relations = append(child.Analysis.Relations, relation)
+					}
+				}
+				facts = append(facts, child)
+			}
+			model, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.duplicate || tc.children < 64 {
+				if model.referencesByTargetIndices != nil {
+					t.Fatal("duplicate or sparse references must preserve original reverse buckets")
+				}
+			} else if model.referencesByTargetIndices == nil || len(model.referencesByTarget) != 0 {
+				t.Fatal("dense unique references should use only immutable reverse indices")
+			}
+			baseCount := 1
+			if tc.ambiguous {
+				baseCount++
+			}
+			for _, base := range facts[:baseCount] {
+				baseID := projectSymbolID(t, base, "demo.Base")
+				want := make([]ProjectReference, 0)
+				for _, reference := range model.References() {
+					for _, target := range reference.Targets {
+						if target.SymbolID == baseID {
+							want = append(want, reference)
+						}
+					}
+				}
+				sortProjectReferences(want)
+				got := model.ReferencesTo("  " + baseID + "  ")
+				if !reflect.DeepEqual(got, want) {
+					t.Fatalf("reverse reference mismatch for %q: got %d want %d", baseID, len(got), len(want))
+				}
+				selector := querySymbolSelector(base, baseID)
+				limits := ProjectQueryLimits{MaxResults: len(want) + 8, MaxNodes: len(want) + 8, MaxEdges: len(want) + 8, MaxDepth: 2}
+				result, err := model.QueryRelations(context.Background(), RelationReferences, selector, ProjectSelector{}, nil, limits)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := len(result.Records); got != len(want) {
+					t.Fatalf("reverse query count=%d want=%d", got, len(want))
+				}
+				if len(got) > 0 {
+					got[0].Source.Path = "modified"
+					if len(got[0].Targets) > 0 {
+						got[0].Targets[0].Path = "modified"
+					}
+					if !reflect.DeepEqual(model.ReferencesTo(baseID), want) {
+						t.Fatal("reverse reference snapshot aliases model storage")
+					}
+				}
+			}
+			if missing := model.ReferencesTo("missing"); missing == nil || len(missing) != 0 {
+				t.Fatalf("missing references must retain non-nil empty snapshot: %#v", missing)
+			}
+		})
+	}
+}
+
+func TestProjectReverseTargetIndexPreservesLegacyPublicJSON(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const definitions, children = 4, 64
+	facts := make([]ProjectFileFacts, 0, definitions+children)
+	for index := 0; index < definitions; index++ {
+		facts = append(facts, projectResolverFacts(t, JavaAnalyzer{}, fmt.Sprintf("project/indexed/Base%03d.java", index), "package demo; public class Base {}\n"))
+	}
+	for index := 0; index < children; index++ {
+		facts = append(facts, projectResolverFacts(t, JavaAnalyzer{}, fmt.Sprintf("project/indexed/Child%03d.java", index), fmt.Sprintf("package demo; public class Child%03d extends Base {}\n", index)))
+	}
+	indexed, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if indexed.referencesByTargetIndices == nil {
+		t.Fatal("expected the dense unique-reference index")
+	}
+	legacy := *indexed
+	legacy.referencesByTargetIndices = nil
+	legacy.referencesByTarget = make(map[string][]ProjectReference)
+	for _, reference := range indexed.references {
+		for _, target := range reference.Targets {
+			if target.SymbolID != "" {
+				legacy.referencesByTarget[target.SymbolID] = append(legacy.referencesByTarget[target.SymbolID], reference)
+			}
+		}
+	}
+	for key := range legacy.referencesByTarget {
+		sortProjectReferences(legacy.referencesByTarget[key])
+	}
+	sameJSON := func(label string, left, right any) {
+		t.Helper()
+		want, err := json.Marshal(right)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := json.Marshal(left)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(want) {
+			t.Fatalf("%s JSON drift: got %s want %s", label, got, want)
+		}
+	}
+	for _, base := range facts[:definitions] {
+		id := projectSymbolID(t, base, "demo.Base")
+		sameJSON("ReferencesTo", indexed.ReferencesTo(id), legacy.ReferencesTo(id))
+		selector := querySymbolSelector(base, id)
+		limits := ProjectQueryLimits{MaxResults: 256, MaxNodes: 256, MaxEdges: 256, MaxDepth: 2}
+		got, gotErr := indexed.QueryRelations(context.Background(), RelationReferences, selector, ProjectSelector{}, nil, limits)
+		want, wantErr := legacy.QueryRelations(context.Background(), RelationReferences, selector, ProjectSelector{}, nil, limits)
+		if gotErr != nil || wantErr != nil {
+			t.Fatalf("relations errors: indexed=%v legacy=%v", gotErr, wantErr)
+		}
+		sameJSON("reverse relations", got, want)
+		options := ProjectContextOptions{BudgetBytes: 1 << 20, MaxItems: 128, MaxDepth: 2, BodyPolicy: ProjectContextSignaturesOnly}
+		gotContext, gotErr := indexed.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+		wantContext, wantErr := legacy.PlanContext(context.Background(), []ProjectSelector{selector}, options)
+		if gotErr != nil || wantErr != nil {
+			t.Fatalf("context errors: indexed=%v legacy=%v", gotErr, wantErr)
+		}
+		sameJSON("reverse context", gotContext, wantContext)
+	}
+}
+
+func TestProjectResolverDefinitionsSnapshotOwnership(t *testing.T) {
+	registry, err := DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, definitions := range []int{0, 1, 4, 16} {
+		t.Run(fmt.Sprintf("targets-%d", definitions), func(t *testing.T) {
+			facts := make([]ProjectFileFacts, 0, definitions+1)
+			for index := 0; index < definitions; index++ {
+				path := fmt.Sprintf("project/definitions/Base%03d.java", index)
+				facts = append(facts, projectResolverFacts(t, JavaAnalyzer{}, path, "package demo; public class Base {}\n"))
+			}
+			child := projectResolverFacts(t, JavaAnalyzer{}, "project/definitions/Child.java", "package demo; public class Child extends Base {}\n")
+			relation := child.Analysis.Relations[0]
+			child.Analysis.Relations = append(child.Analysis.Relations, relation)
+			facts = append(facts, child)
+			model, err := BuildProjectModel(context.Background(), registry, facts, projectResolverLimitsForTest())
+			if err != nil {
+				t.Fatal(err)
+			}
+			references := model.References()
+			if len(references) != 2 || references[0].ID != references[1].ID {
+				t.Fatalf("duplicate reference IDs lost: %+v", references)
+			}
+			id := references[0].ID
+			original := model.Definitions(id)
+			if len(original) != definitions {
+				t.Fatalf("definitions = %d, want %d", len(original), definitions)
+			}
+			if definitions == 0 && original == nil {
+				t.Fatal("empty definitions snapshot must stay non-nil")
+			}
+			for index := range original {
+				if !reflect.DeepEqual(original[index], references[0].Targets[index]) {
+					t.Fatalf("definition[%d] differs from reference target", index)
+				}
+			}
+			before, err := json.Marshal(original)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(original) > 0 {
+				original[0].Path = "externally-modified"
+				original[0].QualifiedName = "external"
+				if original[0].Range != nil {
+					original[0].Range.Start.Line = 999
+				}
+				again := model.Definitions("  " + id + "  ")
+				after, err := json.Marshal(again)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(before, after) {
+					t.Fatalf("mutating a definitions snapshot changed subsequent results: before=%s after=%s", before, after)
+				}
+				if !reflect.DeepEqual(model.References(), references) {
+					t.Fatal("mutating a definitions snapshot changed the reference snapshot")
+				}
+			}
+			if missing := model.Definitions("nonexistent"); missing == nil || len(missing) != 0 {
+				t.Fatalf("missing ID must keep empty non-nil snapshot: %#v", missing)
+			}
+		})
 	}
 }
 

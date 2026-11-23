@@ -28,6 +28,7 @@ func RunSupervisor(ctx context.Context, store *Store, executable string, allowed
 		return err
 	}
 	defer lock.close()
+	logger.Info("task supervisor started")
 	backoff := time.Second
 	for {
 		if ctx.Err() != nil {

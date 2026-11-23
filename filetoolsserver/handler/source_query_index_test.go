@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/zoster81/scripthold/internal/operation"
@@ -16,6 +17,98 @@ import (
 
 	"github.com/zoster81/scripthold/internal/sourceintelligence"
 )
+
+func TestSourceQueryAnalysisFingerprintCacheTracksConfigAndRegistry(t *testing.T) {
+	h := NewHandler([]string{t.TempDir()})
+	registry, err := sourceintelligence.DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	config := sourceintelligence.ProjectIndexAnalysisConfig{
+		MaxFileBytes: 1 << 20, MaxDecodedCharacters: 1 << 21,
+		MaxSymbols: 1024, MaxSignatureBytes: 512, MaxDiagnostics: 64,
+		MaxDetectorProbes: 4, MaxNesting: 64, MaxProjectEdges: 256,
+	}
+	check := func(reg *sourceintelligence.LanguageRegistry, cfg sourceintelligence.ProjectIndexAnalysisConfig) string {
+		t.Helper()
+		got, err := h.sourceQueryAnalysisFingerprint(reg, cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := sourceintelligence.ProjectIndexAnalysisFingerprint(reg, cfg)
+		if err != nil || got != want {
+			t.Fatalf("cache mismatched direct fingerprint: got=%q want=%q err=%v", got, want, err)
+		}
+		return got
+	}
+	first := check(registry, config)
+	if again := check(registry, config); again != first {
+		t.Fatal("identical configuration changed fingerprint")
+	}
+	changed := config
+	changed.MaxSymbols++
+	if different := check(registry, changed); different == first {
+		t.Fatal("different analyzer limit reused stale fingerprint")
+	}
+	if original := check(registry, config); original != first {
+		t.Fatal("restoring analyzer limits changed fingerprint")
+	}
+	goDescriptor, found := registry.Lookup("go")
+	if !found {
+		t.Fatal("default registry lacks Go")
+	}
+	otherRegistry, err := sourceintelligence.NewLanguageRegistry([]sourceintelligence.LanguageDescriptor{goDescriptor})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if different := check(otherRegistry, config); different == first {
+		t.Fatal("different registry reused default registry fingerprint")
+	}
+	if original := check(registry, config); original != first {
+		t.Fatal("restoring registry changed fingerprint")
+	}
+	if _, err := h.sourceQueryAnalysisFingerprint(nil, config); err == nil {
+		t.Fatal("nil registry should fail closed")
+	}
+	if original := check(registry, config); original != first {
+		t.Fatal("invalid registry replaced the valid fingerprint")
+	}
+}
+
+func TestSourceQueryAnalysisFingerprintCacheConcurrent(t *testing.T) {
+	h := NewHandler([]string{t.TempDir()})
+	registry, err := sourceintelligence.DefaultLanguageRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	configs := []sourceintelligence.ProjectIndexAnalysisConfig{
+		{MaxSymbols: 1000, MaxFileBytes: 1 << 20},
+		{MaxSymbols: 1001, MaxFileBytes: 1 << 20},
+	}
+	var expected [2]string
+	for i, config := range configs {
+		expected[i], err = sourceintelligence.ProjectIndexAnalysisFingerprint(registry, config)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var workers sync.WaitGroup
+	for worker := 0; worker < 12; worker++ {
+		workers.Add(1)
+		go func(offset int) {
+			defer workers.Done()
+			for i := 0; i < 32; i++ {
+				index := (i + offset) % len(configs)
+				fingerprint, err := h.sourceQueryAnalysisFingerprint(registry, configs[index])
+				if err != nil || fingerprint != expected[index] {
+					t.Errorf("concurrent fingerprint: index=%d got=%q want=%q err=%v", index, fingerprint, expected[index], err)
+					return
+				}
+			}
+		}(worker)
+	}
+	workers.Wait()
+}
 
 func TestSourceSearchInvalidCursorDoesNotBuildIndex(t *testing.T) {
 	root := canonicalHandlerTestDir(t)

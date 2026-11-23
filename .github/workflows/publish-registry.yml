@@ -25,8 +25,8 @@ jobs:
     timeout-minutes: 15
     env:
       VERSION_TAG: ${{ inputs.version }}
-      MCP_PUBLISHER_VERSION: 1.8.1
-      MCP_PUBLISHER_LINUX_AMD64_SHA256: a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc
+      MCP_PUBLISHER_VERSION: 1.8.11
+      MCP_PUBLISHER_LINUX_AMD64_SHA256: 99fbd857ae2277e5e4a4a2cddc7f4d3e64612c6f90950f44584c3539c9df854f
       MCPB_VERSION: 2.1.2
       MCPB_NPM_INTEGRITY: sha512-goRbBC8ySo7SWb7tRzr+tL6FxDc4JPTRCdgfD2omba7freofvjq5rom1lBnYHZHo6Mizs1jAHJeN53aZbDoy8A==
     steps:
@@ -59,7 +59,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: '26.11.1'
+          node-version: '26.13.1'
           package-manager-cache: false
 
       - name: Verify complete immutable GitHub Release before Registry publication
