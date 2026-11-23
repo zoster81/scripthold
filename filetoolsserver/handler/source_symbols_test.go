@@ -184,8 +184,18 @@ func TestSourceRequestFileSelectionParity(t *testing.T) {
 			if failed != nil {
 				t.Fatalf("unexpected selection error: %+v", failed)
 			}
-			if len(roots) != 1 || !reflect.DeepEqual(files, tc.wantFiles) || truncated != tc.wantTruncated {
-				t.Fatalf("selection roots=%v files=%v truncated=%t; want files=%v truncated=%t", roots, files, truncated, tc.wantFiles, tc.wantTruncated)
+			// Validation resolves platform-specific path aliases (Windows 8.3
+			// names and macOS /var -> /private/var) before file collection.
+			wantFiles := make([]string, len(tc.wantFiles))
+			for i, path := range tc.wantFiles {
+				validated := h.ValidatePath(path)
+				if !validated.Ok() {
+					t.Fatalf("fixture path %q was not authorized: %+v", path, validated.Result)
+				}
+				wantFiles[i] = validated.Path
+			}
+			if len(roots) != 1 || !reflect.DeepEqual(files, wantFiles) || truncated != tc.wantTruncated {
+				t.Fatalf("selection roots=%v files=%v truncated=%t; want files=%v truncated=%t", roots, files, truncated, wantFiles, tc.wantTruncated)
 			}
 		})
 	}
