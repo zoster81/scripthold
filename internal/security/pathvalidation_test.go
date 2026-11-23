@@ -8,6 +8,91 @@ import (
 	"testing"
 )
 
+// BenchmarkAllowedDirectoryMatcherResolutionStages isolates the Windows
+// filesystem calls involved in authorized path lookup. Stages overlap and
+// must not be added or used to bypass fresh resolution or 8.3 normalization.
+func BenchmarkAllowedDirectoryMatcherResolutionStages(b *testing.B) {
+	root := b.TempDir()
+	deep := filepath.Join(root, "nested", "deeper")
+	if err := os.MkdirAll(deep, 0o700); err != nil {
+		b.Fatal(err)
+	}
+	file := filepath.Join(deep, "source.go")
+	if err := os.WriteFile(file, []byte("package sample\n"), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	outside := b.TempDir()
+	matcher := NewAllowedDirectoryMatcher([]string{root})
+
+	for _, item := range []struct {
+		name string
+		path string
+	}{
+		{name: "root", path: root},
+		{name: "nested-file", path: file},
+	} {
+		expected, allowed := matcher.ResolvePathSafe(item.path)
+		if !allowed {
+			b.Fatalf("expected authorized path %q", item.path)
+		}
+		resolved, err := resolveExistingPath(item.path)
+		if err != nil || !matcher.contains(resolved) {
+			b.Fatalf("failed to prepare resolved path %q: %v", item.path, err)
+		}
+		b.Run(item.name+"/resolve-existing", func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				result, err := resolveExistingPath(item.path)
+				if err != nil || result == "" {
+					b.Fatalf("resolution failed: %v", err)
+				}
+			}
+		})
+		b.Run(item.name+"/normalize-resolved", func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if normalized := normalizePath(resolved); normalized == "" {
+					b.Fatal("empty normalized spelling")
+				}
+			}
+		})
+		b.Run(item.name+"/contains-resolved", func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if !matcher.contains(resolved) {
+					b.Fatal("authorized path rejected")
+				}
+			}
+		})
+		b.Run(item.name+"/full-lookup", func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				result, safe := matcher.ResolvePathSafe(item.path)
+				if !safe || result != expected {
+					b.Fatal("path lookup diverged")
+				}
+			}
+		})
+	}
+
+	if _, safe := matcher.ResolvePathSafe(outside); safe {
+		b.Fatal("unrelated directory accepted")
+	}
+	b.Run("outside-denied", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			if _, safe := matcher.ResolvePathSafe(outside); safe {
+				b.Fatal("outside path accepted")
+			}
+		}
+	})
+}
+
 func TestPreparedAllowedDirectoryMatcherPreservesResolvedSecurity(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
