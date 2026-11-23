@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -120,6 +121,63 @@ func BenchmarkSourceQuerySelectionFingerprintStages(b *testing.B) {
 			}
 		}
 	})
+}
+
+// BenchmarkSourceQuerySelectionLayouts compares secure file selection across
+// flat and nested source trees. Every run traverses the complete authorized
+// scope, even when the caller retains fewer matches than the fixture contains.
+func BenchmarkSourceQuerySelectionLayouts(b *testing.B) {
+	for _, fileCount := range []int{1, 16, 80, 256} {
+		for _, nested := range []bool{false, true} {
+			layout := "flat"
+			if nested {
+				layout = "nested"
+			}
+			b.Run(fmt.Sprintf("%s/%d", layout, fileCount), func(b *testing.B) {
+				root := b.TempDir()
+				paths := make([]string, 0, fileCount)
+				for index := 0; index < fileCount; index++ {
+					dir := root
+					if nested {
+						dir = filepath.Join(root, fmt.Sprintf("pkg%02d", index%8))
+						if err := os.MkdirAll(dir, 0o700); err != nil {
+							b.Fatal(err)
+						}
+					}
+					path := filepath.Join(dir, fmt.Sprintf("Item%03d.java", index))
+					if err := os.WriteFile(path, []byte("package bench; public class Item {}\n"), 0o600); err != nil {
+						b.Fatal(err)
+					}
+					paths = append(paths, path)
+				}
+				sort.Strings(paths)
+				maxFiles := min(fileCount, 80)
+				h := NewHandler([]string{root})
+				ctx := context.Background()
+				checkSelection := func(b *testing.B, requested []string, expected []string, wantTruncated bool, maximum int) {
+					b.Helper()
+					selected, truncated, err := h.collectBoundedSourceFiles(ctx, requested, nil, nil, false, maximum)
+					if err != nil || truncated != wantTruncated || !reflect.DeepEqual(selected, expected) {
+						b.Fatalf("file selection: got %d selected, truncated=%t, err=%v", len(selected), truncated, err)
+					}
+				}
+				b.Run("directory", func(b *testing.B) {
+					b.ReportAllocs()
+					b.ResetTimer()
+					for iteration := 0; iteration < b.N; iteration++ {
+						checkSelection(b, []string{root}, paths[:maxFiles], fileCount > maxFiles, maxFiles)
+					}
+				})
+				b.Run("explicit-file", func(b *testing.B) {
+					b.ReportAllocs()
+					b.ResetTimer()
+					for iteration := 0; iteration < b.N; iteration++ {
+						checkSelection(b, paths[:1], paths[:1], false, 1)
+					}
+				})
+			})
+		}
+	}
 }
 
 // BenchmarkSourceQuerySingleFileFingerprintAttribution isolates immutable
