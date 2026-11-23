@@ -20,6 +20,13 @@ func normalizePlatformPath(path string) string {
 	if err != nil {
 		return path
 	}
+	// GetLongPathName retains the Win32 extended-length prefix. Compare only
+	// canonical absolute drive/UNC spellings against already-normalized roots;
+	// preserve other device namespaces instead of rewriting them as paths.
+	canonical := normalizeWindowsFinalPath(expanded)
+	if filepath.IsAbs(canonical) && filepath.VolumeName(canonical) != "" {
+		return canonical
+	}
 	return expanded
 }
 

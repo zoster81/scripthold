@@ -38,6 +38,18 @@ func TestValidatePath_RejectsJunctionEscape(t *testing.T) {
 	if safe {
 		t.Fatalf("junction escape resolved as safe: %s", resolved)
 	}
+	// The extended spelling must not turn an escaping reparse point into an
+	// authorized path, including a missing descendant.
+	extendedJunction := `\\?\` + junction
+	if _, err := ValidatePath(extendedJunction, []string{allowedDir}); !errors.Is(err, ErrSymlinkDenied) {
+		t.Errorf("extended escaping junction error = %v, want ErrSymlinkDenied", err)
+	}
+	if _, err := ValidatePath(filepath.Join(extendedJunction, "missing", "new.txt"), []string{allowedDir}); !errors.Is(err, ErrParentDirDenied) {
+		t.Errorf("extended escaping junction child error = %v, want ErrParentDirDenied", err)
+	}
+	if _, safe := ResolvePathSafe(extendedJunction, ResolveAllowedDirs([]string{allowedDir})); safe {
+		t.Error("extended escaping junction resolved as safe")
+	}
 }
 
 func TestValidatePath_AllowsMissingPathThroughSafeJunction(t *testing.T) {
@@ -129,6 +141,8 @@ func TestWindowsShortNameAliasesPreserveAllowedBoundaries(t *testing.T) {
 	shortOutside := windowsShortPathForTest(t, outside)
 	shortAllowedFile := filepath.Join(shortAllowed, filepath.Base(allowedFile))
 	shortOutsideFile := filepath.Join(shortOutside, filepath.Base(outsideFile))
+	extendedShortAllowedFile := `\\?\` + shortAllowedFile
+	extendedShortOutsideFile := `\\?\` + shortOutsideFile
 	shortMissing := filepath.Join(shortAllowed, "missing", "new.txt")
 
 	for _, configuredRoot := range []string{allowed, shortAllowed} {
@@ -144,12 +158,12 @@ func TestWindowsShortNameAliasesPreserveAllowedBoundaries(t *testing.T) {
 				t.Fatal("8.3 sibling spelling escaped the requested-root boundary")
 			}
 
-			for _, candidate := range []string{allowedFile, shortAllowedFile, shortMissing} {
+			for _, candidate := range []string{allowedFile, shortAllowedFile, extendedShortAllowedFile, shortMissing} {
 				if _, err := ValidatePathWithAllowedDirectories(candidate, set.Requested, set.Resolved); err != nil {
 					t.Errorf("valid candidate %q: %v", candidate, err)
 				}
 			}
-			for _, candidate := range []string{outsideFile, shortOutsideFile} {
+			for _, candidate := range []string{outsideFile, shortOutsideFile, extendedShortOutsideFile} {
 				if _, err := ValidatePathWithAllowedDirectories(candidate, set.Requested, set.Resolved); !errors.Is(err, ErrPathDenied) {
 					t.Errorf("sibling %q: error = %v, want ErrPathDenied", candidate, err)
 				}
@@ -160,6 +174,67 @@ func TestWindowsShortNameAliasesPreserveAllowedBoundaries(t *testing.T) {
 			}
 			if _, ok := matcher.ResolvePathSafe(shortOutsideFile); ok {
 				t.Error("resolved 8.3 sibling spelling escaped matcher")
+			}
+		})
+	}
+}
+
+// TestWindowsExtendedPathPrefixesPreserveAllowedBoundaries verifies that an
+// existing extended-length Win32 spelling has the same access boundary as its
+// ordinary absolute spelling, including a not-yet-created child.
+func TestWindowsExtendedPathPrefixesPreserveAllowedBoundaries(t *testing.T) {
+	parent := t.TempDir()
+	allowed := filepath.Join(parent, "LongAllowedDirectoryName")
+	outside := filepath.Join(parent, "LongAllowedDirectoryName-sibling")
+	for _, dir := range []string{allowed, outside} {
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	insideFile := filepath.Join(allowed, "inside.txt")
+	outsideFile := filepath.Join(outside, "outside.txt")
+	for _, path := range []string{insideFile, outsideFile} {
+		if err := os.WriteFile(path, []byte("test"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	extended := func(path string) string { return `\\?\` + path }
+	for _, root := range []struct {
+		name string
+		path string
+	}{
+		{name: "ordinary-root", path: allowed},
+		{name: "extended-root", path: extended(allowed)},
+	} {
+		t.Run(root.name, func(t *testing.T) {
+			set, err := NormalizeAllowedDirectorySet([]string{root.path})
+			if err != nil {
+				t.Fatalf("root normalization failed: %v", err)
+			}
+			for _, candidate := range []string{
+				insideFile,
+				extended(insideFile),
+				filepath.Join(extended(allowed), "missing", "new.txt"),
+			} {
+				if _, err := ValidatePathWithAllowedDirectories(candidate, set.Requested, set.Resolved); err != nil {
+					t.Errorf("valid candidate %q: %v", candidate, err)
+				}
+			}
+			for _, candidate := range []string{
+				outsideFile,
+				extended(outsideFile),
+				extended(allowed) + `\..\LongAllowedDirectoryName-sibling\outside.txt`,
+			} {
+				if _, err := ValidatePathWithAllowedDirectories(candidate, set.Requested, set.Resolved); !errors.Is(err, ErrPathDenied) {
+					t.Errorf("escaping candidate %q: error = %v, want ErrPathDenied", candidate, err)
+				}
+			}
+			matcher := NewAllowedDirectoryMatcher(set.Resolved)
+			if _, ok := matcher.ResolvePathSafe(extended(insideFile)); !ok {
+				t.Error("authorized extended-length file was rejected by resolved matcher")
+			}
+			if _, ok := matcher.ResolvePathSafe(extended(outsideFile)); ok {
+				t.Error("extended-length outside file escaped resolved matcher")
 			}
 		})
 	}
