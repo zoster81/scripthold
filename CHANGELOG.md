@@ -4,13 +4,28 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 
 ## Unreleased
 
+No changes since 4.2.0.
+
+## 4.2.0 - 2026-11-23
+
+This release makes Source Intelligence faster and easier to maintain without changing its public tools or response formats. It also improves source-search reliability, Windows path handling, and durable task startup after worker-count changes.
+
+### Highlights
+
+- **Faster source navigation:** Less repeated work and lower temporary memory use for project search, context, symbols, and indexes. In paired Windows benchmarks, 8 of 16 cases met the improvement target, with no significant stabilized regressions.
+- **More reliable results:** Corrected mixed-language source searches and preserved safe path checks across Windows path spellings.
+- **More flexible startup:** Saved tasks remain available when the configured worker count changes between server restarts; running workers are not reconfigured automatically.
+- **Safer delivery:** Updated pinned dependencies and GitHub Actions, with full Linux, Windows, and macOS tests and race checks passing on the protected main branch.
+
+The changes are backward-compatible with the 4.1.0 tool interfaces. Publishing does not update an already installed server.
+
 ### Fixed
 
-- Exact, kind-filtered `source_query` searches now retain embedded-language declarations such as PHP classes inside Blade templates, even when the project is large enough for indexed lookup. Mixed-language models use the original deterministic scan; single-language indexed searches, source fingerprints, result limits, and public response schemas remain unchanged. This fix is unreleased.
-- Windows allowed-root checks now recognize equivalent ordinary and extended-length (`\\?\`) absolute drive/UNC path spellings after 8.3 name expansion. Existing authorized files and missing descendants remain accessible through either spelling, while sibling paths and escaping junctions remain denied. The normal symlink/reparse resolution and revalidation boundaries are unchanged; this fix is unreleased.
+- Exact, kind-filtered `source_query` searches now retain embedded-language declarations such as PHP classes inside Blade templates, even when the project is large enough for indexed lookup. Mixed-language models use the original deterministic scan; single-language indexed searches, source fingerprints, result limits, and public response schemas remain unchanged. This fix is included in 4.2.0.
+- Windows allowed-root checks now recognize equivalent ordinary and extended-length (`\\?\`) absolute drive/UNC path spellings after 8.3 name expansion. Existing authorized files and missing descendants remain accessible through either spelling, while sibling paths and escaping junctions remain denied. The normal symlink/reparse resolution and revalidation boundaries are unchanged.
 - Project source-query models now make an independent copy of each retained symbol's mutable modifiers and optional source ranges. Changes to caller-owned analysis facts after model construction can no longer alter those symbol records; public search results, indexes, and source-fingerprint checks remain unchanged.
 - `source_query.context` now bounds ancestry traversal when normalized source facts contain self-referential or cyclic parent IDs. Malformed ownership can no longer make context planning loop indefinitely; ordinary hierarchies, deterministic results, output budgets, and cancellation remain unchanged.
-- Durable task stores can now reopen after `MCP_TASK_MAX_CONCURRENCY` changes between coordinated process restarts (for example, 4 to 8 or 12, then back to 4). Worker concurrency is a validated startup setting; existing descriptor bytes, stored task identities, and durable queue/log/runtime/retention policy remain unchanged. Running workers are not reconfigured live, and published 4.1.0 does not include this change.
+- Durable task stores can now reopen after `MCP_TASK_MAX_CONCURRENCY` changes between coordinated process restarts (for example, 4 to 8 or 12, then back to 4). Worker concurrency is a validated startup setting; existing descriptor bytes, stored task identities, and durable queue/log/runtime/retention policy remain unchanged. Running workers are not reconfigured live.
 
 ### Changed
 
@@ -35,7 +50,7 @@ This changelog records user-visible Scripthold changes. Detailed implementation 
 - Source Symbols and Source Query response-size checks now use their existing legacy JSON serializers directly instead of passing the same JSON through a second encoder. This reduces response processing time on large outputs while preserving exact byte limits, Unicode escaping, error handling, and public JSON. Other value types retain the existing counting encoder.
 - Concise `source_symbols` digest and outline now retain only the parent facts needed to establish top-level declarations. Owner-filtered concise outlines skip the unnecessary ancestry index entirely. Large source files use less temporary memory without changing owner selection, nested declarations, incomplete ancestry handling, truncation, or public responses.
 - Repeated `source_query` requests now reuse a single per-handler fingerprint of the immutable language registry and effective analysis limits. This avoids redundant hashing and temporary allocations; changing the registry or any fact-affecting limit triggers recalculation. Source-content fingerprint checks, index generations, stale bindings, limits and public responses are unchanged.
-- Refreshed pinned CI and publication tooling (Node.js 26.13.1, GoReleaser 2.20.3, golangci-lint 2.15.0, govulncheck 1.10.0, and MCP Registry publisher 1.8.11) and updated indirect Go module dependencies. Immutable Action digests and release-tool integrity checks remain enforced; this development-only update does not publish or install a new server.
+- Refreshed pinned CI and publication tooling (Node.js 26.13.1, GoReleaser 2.20.3, golangci-lint 2.15.0, govulncheck 1.10.0, and MCP Registry publisher 1.8.11) and updated indirect Go module dependencies. Immutable Action digests and release-tool integrity checks remain enforced; publishing this release does not automatically update a running server.
 - Sparse exact `source_query.search` requests with symbol-kind filters now reuse existing immutable name and qualified-name indexes rather than scanning every project symbol. Small projects, dense matches, and original source-spelling aliases retain the established scan; result ordering, evidence filters, continuation, limits, and public JSON remain unchanged. Prefix, contains, and unfiltered searches keep their previous behavior.
 - Exact `source_query.search` requests with symbol-kind filters now check whether a symbol name matches before checking its kind. This improves sparse exact searches without changing original source spellings, result ordering, continuation, output limits or public JSON. Prefix and contains searches retain their previous filtering order.
 - Structural `source_query.search` now delays result-heap allocation until the first match. With result limits of 16 or more, it holds one match before expanding to the original bounded top-K capacity when another match arrives. This reduces temporary memory for empty and single-hit searches while preserving public JSON, ordering, continuation cursors, truncation, and output limits.
