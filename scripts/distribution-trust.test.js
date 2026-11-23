@@ -30,7 +30,7 @@ test('OpenSSF Scorecard workflow stays on supported default-branch triggers', ()
   assert.doesNotMatch(scorecard, /tags:\s*\n\s*- ['"]v\*['"]/m);
   assert.match(scorecard, /schedule:\s*\n\s*- cron:/m);
   assert.match(scorecard, /permissions:\s*\n\s*contents: read\s*\n\s*security-events: write\s*\n\s*id-token: write/m);
-  assert.match(scorecard, /ossf\/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e/);
+  assert.match(scorecard, /ossf\/scorecard-action@23f22cd43608bae7a1f1fa2603d7314dee9538a5 # v2\.6\.0/);
   assert.match(scorecard, /publish_results:\s*true/);
   assert.match(scorecard, /results_file:\s*results\.sarif/);
   assert.match(scorecard, /persist-credentials:\s*false/);

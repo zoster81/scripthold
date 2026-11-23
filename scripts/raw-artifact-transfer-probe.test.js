@@ -139,7 +139,7 @@ function assertNativeNormalStagingProbe(yaml) {
   assert.ok(verified >= 0 && isolated > verified && checkout > isolated && go > checkout,
     'staging may consume raw downloads only after complete 22-byte validation');
   assert.match(consumer, /^        uses: actions\/checkout@[0-9a-f]{40} # v7\.0\.1$/m);
-  assert.match(consumer, /^        uses: actions\/setup-go@[0-9a-f]{40} # v7\.0\.0$/m);
+  assert.match(consumer, /^        uses: actions\/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7\.1\.0$/m);
   const separate = consumer.slice(isolated, checkout);
   assert.match(separate, /^          artifact-ids: \$\{\{ needs\.normal\.outputs\.ids \}\}$/m);
   assert.match(separate, /^          digest-mismatch: error$/m);
