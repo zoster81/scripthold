@@ -314,6 +314,47 @@ func TestSourceQueryStructuredResultContract(t *testing.T) {
 	}
 }
 
+// The public search envelope must expose PHP symbols embedded in a Blade file,
+// even when dense host declarations activate the exact kind-filtered index.
+func TestSourceQueryIndexedKindFilterIncludesEmbeddedBladePHP(t *testing.T) {
+	root := canonicalHandlerTestDir(t)
+	path := filepath.Join(root, "view.blade.php")
+	var text strings.Builder
+	for index := 0; index < 40; index++ {
+		fmt.Fprintf(&text, "<span id=\"host-%03d\"></span>\n", index)
+	}
+	text.WriteString("@php class EmbeddedService { public function run() {} } @endphp\n")
+	writeSourceQueryFixture(t, path, text.String())
+
+	h := NewHandler([]string{root})
+	for _, tc := range []struct {
+		name  string
+		kinds []string
+	}{
+		{name: "unfiltered"},
+		{name: "kind-filtered", kinds: []string{"class"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result, out, err := h.SourceQuery(context.Background(), nil, SourceQueryInput{
+				Operation: "search", Paths: []string{path}, Query: "EmbeddedService",
+				Mode: "structural", Match: "exact", Language: "blade", Encoding: "utf-8",
+				Kinds: tc.kinds, MaxFiles: 1, MaxResults: 8,
+			})
+			if err != nil || (result != nil && result.IsError) {
+				t.Fatalf("public search result=%+v err=%v", result, err)
+			}
+			if !out.Coverage.CoverageComplete || out.Search == nil || len(out.Search.Matches) != 1 {
+				t.Fatalf("public search lost embedded PHP declaration: %+v", out)
+			}
+			match := out.Search.Matches[0]
+			if match.Name != "EmbeddedService" || match.Kind != sourceintelligence.SymbolKindClass ||
+				match.Language != "php" || match.Path != path || match.SymbolID == "" {
+				t.Fatalf("public embedded-language search match = %+v", match)
+			}
+		})
+	}
+}
+
 func TestSourceQuerySearchIdentifiesDeclarationsWithoutAdditionalLookup(t *testing.T) {
 	root := canonicalHandlerTestDir(t)
 	path := filepath.Join(root, "Service.java")
