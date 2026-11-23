@@ -45,6 +45,47 @@ func BenchmarkSourceQuerySelectionFingerprintStages(b *testing.B) {
 	if seedErr != nil || seedError != nil || seed.Search == nil || len(seed.Search.Matches) != 1 {
 		b.Fatalf("warm seed result=%+v err=%v output=%+v", seedError, seedErr, seed)
 	}
+	// The stages below are independent probes, not additive slices of wall time.
+	// Keep authorization and traversal intact: preflight also enforces aggregate limits.
+	b.Run("root-validation-1", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			validated := h.ValidatePath(root)
+			if !validated.Ok() {
+				b.Fatalf("source root validation failed: %+v", validated.Result)
+			}
+		}
+	})
+	b.Run("secure-file-selection-80", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			selected, selectedTruncated, err := h.collectBoundedSourceFiles(
+				ctx, []string{root}, nil, nil, shouldRespectGitignore(nil), fileCount,
+			)
+			if err != nil || selectedTruncated || len(selected) != fileCount {
+				b.Fatalf("file selection: count=%d truncated=%t err=%v", len(selected), selectedTruncated, err)
+			}
+		}
+	})
+	b.Run("selected-file-stat-80", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for iteration := 0; iteration < b.N; iteration++ {
+			var totalBytes int64
+			for _, path := range files {
+				info, err := os.Stat(path)
+				if err != nil || !info.Mode().IsRegular() {
+					b.Fatalf("stat selected source %q: %v", path, err)
+				}
+				totalBytes += info.Size()
+			}
+			if totalBytes <= 0 || totalBytes > limits.MaxAggregateBytes {
+				b.Fatalf("unexpected aggregate source bytes %d", totalBytes)
+			}
+		}
+	})
 	b.Run("authorized-preflight-80", func(b *testing.B) {
 		b.ReportAllocs()
 		b.ResetTimer()
